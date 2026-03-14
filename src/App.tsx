@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchMarkets, fetchSignals, previewScenario, speakOracle } from "./api";
@@ -13,6 +13,56 @@ import { AnimatePresence } from "framer-motion";
 const GlobeScene = lazy(() => import("./components/GlobeScene"));
 
 const ORACLE_ENABLED = false;
+
+function GlobalLoadingScreen({ stage }: { stage: GlobeLoadStage }) {
+  const stageMeta = globeLoadStageMeta[stage];
+  const currentStageIndex = globeLoadStageOrder.indexOf(stage);
+
+  return (
+    <div className="global-loading-screen" aria-live="polite" aria-busy="true">
+      <div className="global-loading-panel">
+        <span className="global-loading-kicker">Terra Arbitrage</span>
+        <h2>Loading planetary engine</h2>
+        <p>{stageMeta.description}</p>
+
+        <div className="global-loading-progress-meta">
+          <strong>{stageMeta.title}</strong>
+          <span>{stageMeta.progress}%</span>
+        </div>
+
+        <div
+          className="global-loading-progress"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={stageMeta.progress}
+          aria-label="Loading progress"
+        >
+          <div
+            className="global-loading-progress-fill"
+            style={{ width: `${stageMeta.progress}%` }}
+          />
+        </div>
+
+        <div className="global-loading-steps">
+          {globeLoadStageOrder.map((step, index) => (
+            <div
+              key={step}
+              className={
+                index <= currentStageIndex
+                  ? "global-loading-step is-complete"
+                  : "global-loading-step"
+              }
+            >
+              <span>{globeLoadStageMeta[step].progress}</span>
+              <small>{globeLoadStageMeta[step].stepLabel}</small>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function App() {
   const [isOracleSpeaking, setIsOracleSpeaking] = useState(false);
@@ -62,6 +112,52 @@ function App() {
     }
   }, [previewQuery.data, setFeed]);
 
+  const latestSpeechRef = useRef("");
+  const [isGlobeMounted, setIsGlobeMounted] = useState(false);
+  const [isAppInteractive, setIsAppInteractive] = useState(false);
+  const [loadStage, setLoadStage] = useState<GlobeLoadStage>("shell");
+
+  const advanceLoadStage = (nextStage: GlobeLoadStage) => {
+    setLoadStage((currentStage) => {
+      const currentIndex = globeLoadStageOrder.indexOf(currentStage);
+      const nextIndex = globeLoadStageOrder.indexOf(nextStage);
+      return nextIndex > currentIndex ? nextStage : currentStage;
+    });
+  };
+
+  useEffect(() => {
+    let timeoutId: number | undefined;
+    let animationFrameId = 0;
+    let idleCallbackId: number | undefined;
+    const requestIdle = window.requestIdleCallback?.bind(window);
+    const cancelIdle = window.cancelIdleCallback?.bind(window);
+
+    const mountGlobe = () => {
+      advanceLoadStage("chunk");
+      setIsGlobeMounted(true);
+    };
+
+    animationFrameId = window.requestAnimationFrame(() => {
+      if (requestIdle) {
+        idleCallbackId = requestIdle(mountGlobe, { timeout: 320 });
+        return;
+      }
+
+      timeoutId = window.setTimeout(mountGlobe, 90);
+    });
+
+    return () => {
+      if (typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+      if (idleCallbackId !== undefined && cancelIdle) {
+        cancelIdle(idleCallbackId);
+      }
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, []);
   const signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
   const baseTickers = marketsQuery.data?.tickers ?? [];
 
@@ -106,6 +202,44 @@ function App() {
     );
   }, [audioEnabled, previewQuery.data, pushOracleSpeech, speakMutation]);
 
+  const signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
+  const tickers = marketsQuery.data?.tickers ?? [];
+  const sideMotionProps = isAppInteractive
+    ? {
+        initial: { opacity: 0, x: -24 },
+        animate: { opacity: 1, x: 0 },
+        transition: { duration: 0.5 }
+      }
+    : {
+        initial: false,
+        animate: { opacity: 1, x: 0 },
+        transition: { duration: 0 }
+      };
+  const rightMotionProps = isAppInteractive
+    ? {
+        initial: { opacity: 0, x: 24 },
+        animate: { opacity: 1, x: 0 },
+        transition: { duration: 0.5 }
+      }
+    : {
+        initial: false,
+        animate: { opacity: 1, x: 0 },
+        transition: { duration: 0 }
+      };
+  const globeMotionProps = isAppInteractive
+    ? {
+        initial: { opacity: 0, scale: 0.96 },
+        animate: { opacity: 1, scale: 1 },
+        transition: { duration: 0.6 }
+      }
+    : {
+        initial: false,
+        animate: { opacity: 1, scale: 1 },
+        transition: { duration: 0 }
+      };
+
+  return (
+    <div className={isAppInteractive ? "app-shell is-interactive" : "app-shell is-loading"}>
   // Background price tick effect
   useEffect(() => {
     if (!signals.length) return;
@@ -176,30 +310,31 @@ function App() {
       </header>
 
       <main className="dashboard-grid">
-        <motion.div
-          className="left-column"
-          initial={{ opacity: 0, x: -24 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.5 }}
-        >
-          <FeedPanel feed={feedHistory} oracleHistory={[]} />
+        <motion.div className="left-column" {...sideMotionProps}>
+          <FeedPanel feed={feedHistory} oracleHistory={oracleHistory} />
         </motion.div>
 
-        <motion.section
-          className="globe-column"
-          initial={{ opacity: 0, scale: 0.96 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.6 }}
-        >
-          <Suspense fallback={<div className="globe-loading">Calibrating planetary mesh...</div>}>
-            <GlobeScene
-              selectedCityId={selectedCityId}
-              selectedAssetId={selectedAssetId}
-              signals={signals}
-              rankings={previewQuery.data?.rankings ?? []}
-              onSelectCity={setCity}
-            />
-          </Suspense>
+        <motion.section className="globe-column" {...globeMotionProps}>
+          <div className={isAppInteractive ? "globe-stage is-ready" : "globe-stage"}>
+            {isGlobeMounted ? (
+              <div className={isAppInteractive ? "globe-scene-slot is-ready" : "globe-scene-slot"}>
+                <Suspense fallback={null}>
+                  <GlobeScene
+                    selectedCityId={selectedCityId}
+                    compareCityId={compareCityId}
+                    selectedAssetId={selectedAssetId}
+                    signals={signals}
+                    rankings={previewQuery.data?.rankings ?? []}
+                    onStageChange={(stage) => advanceLoadStage(stage)}
+                    onInteractive={() => {
+                      advanceLoadStage("interactive");
+                      setIsAppInteractive(true);
+                    }}
+                  />
+                </Suspense>
+              </div>
+            ) : null}
+          </div>
           <div className="globe-overlay">
             <div className="overlay-panel">
               <span className="eyebrow">Selected city — click globe to change</span>
@@ -210,18 +345,14 @@ function App() {
               <span className="eyebrow">Signal mode</span>
               <strong>{signalsQuery.data?.sourceMode ?? "fallback"}</strong>
               <p>
-                Hybrid weather and atmospheric signals with regional soil baselines and dramatic fallback events.
+                Hybrid weather and atmospheric signals with regional soil baselines and dramatic
+                fallback events.
               </p>
             </div>
           </div>
         </motion.section>
 
-        <motion.div
-          className="right-column"
-          initial={{ opacity: 0, x: 24 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.5 }}
-        >
+        <motion.div className="right-column" {...rightMotionProps}>
           <MarketPanel
             tickers={tickers}
             preview={previewQuery.data}
@@ -231,6 +362,24 @@ function App() {
           />
         </motion.div>
       </main>
+
+      <ControlsBar
+        selectedAssetId={selectedAssetId}
+        selectedCityId={selectedCityId}
+        compareCityId={compareCityId}
+        liveMode={liveMode}
+        audioEnabled={audioEnabled}
+        scenario={scenario}
+        onAssetChange={setAsset}
+        onCityChange={setCity}
+        onCompareChange={setCompareCity}
+        onModeChange={setLiveMode}
+        onScenarioChange={setScenarioValue}
+        onResetScenario={resetScenario}
+        onToggleAudio={toggleAudio}
+      />
+
+      {!isAppInteractive ? <GlobalLoadingScreen stage={loadStage} /> : null}
     </div>
   );
 }
