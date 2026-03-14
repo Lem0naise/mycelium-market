@@ -37,10 +37,10 @@ describe("terra arbitrage api", () => {
 
     const response = await resolveScenarioPreview(provider, {
       assetId: "COCOA",
-      cityId: "manaus",
+      cityId: "abidjan",
       compareCityId: "reykjavik",
       patch: {
-        targetCityId: "manaus",
+        targetCityId: "abidjan",
         rainDelta: 5,
         temperatureDelta: 2,
         windDelta: 1,
@@ -50,7 +50,7 @@ describe("terra arbitrage api", () => {
       mode: "demo"
     });
 
-    expect(response.primary.cityId).toBe("manaus");
+    expect(response.primary.cityId).toBe("abidjan");
     expect(response.compare?.cityId).toBe("reykjavik");
     expect(response.rankings[0].travelScore).toBeGreaterThan(0);
     expect(response.feed.length).toBeGreaterThan(0);
@@ -58,14 +58,14 @@ describe("terra arbitrage api", () => {
 
   it("filters signals and emits oracle speech payloads without a real voice key", async () => {
     const provider = createMockProvider();
-    const signals = await resolveSignals(provider, "live", "manaus");
+    const signals = await resolveSignals(provider, "live", "abidjan");
     const speech = await resolveOracleSpeech(provider, {
       text: "The storm has become a valuation event.",
       severity: "alert"
     });
 
     expect(signals.signals).toHaveLength(1);
-    expect(signals.signals[0].cityId).toBe("manaus");
+    expect(signals.signals[0].cityId).toBe("abidjan");
     expect(speech.audioUrl).toContain("data:audio");
     expect(speech.severity).toBe("alert");
   });
