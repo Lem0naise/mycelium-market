@@ -755,7 +755,7 @@ function App() {
       {oracleFlash ? <div className="oracle-flash-overlay" aria-hidden="true" /> : null}
 
       <header className="app-header">
-        
+
         {/* 1. Left Section */}
         <div className="header-left">
           <div>
@@ -807,7 +807,6 @@ function App() {
                 marginBottom: "4px"
               }}
             >
-              Planetary Cycle
             </span>
             <div
               style={{
@@ -815,20 +814,24 @@ function App() {
                 fontWeight: "bold",
                 letterSpacing: "-0.03em",
                 lineHeight: 1,
-                color: "var(--text)"
+                color: "var(--text)",
+                textAlign: "left"
               }}
             >
-              {fictionalDayName}
+              {dayOfYear} <span style={{
+                fontSize: "1rem"
+              }} >{fictionalDayName}</span>
             </div>
             <div
               style={{
                 fontSize: "0.78rem",
                 color: "var(--text-muted)",
                 marginTop: "5px",
-                letterSpacing: "0.05em"
+                letterSpacing: "0.05em",
+                textAlign: "left"
               }}
             >
-              Week {fictionalWeek} · Cycle {fictionalYear}
+              Week {fictionalWeek} · Year {fictionalYear}
             </div>
           </div>
         </div>

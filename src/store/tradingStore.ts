@@ -312,7 +312,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       updates.forEach(({ cityId, earthDeltas, mycelium }) => {
         const newCityPrices = { ...newPrices[cityId] };
         const newCityChangePct = { ...newChangePct[cityId] };
-        const newCityPriceHistory = { ...newPriceHistory[cityId] };
+        const cityPriceHistory = state.priceHistory[cityId] || {};
 
         const pH = mycelium?.soilPh ?? 6.5;
         const pHVolatilityFactor = pH < 5.5 ? 2 : pH > 7.5 ? 0.5 : 1; // VOLATILITY OF PH of soil
@@ -330,15 +330,22 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
           newCityPrices[assetId] = newPrice;
 
           const WINDOW = 40;
-          const prevHistory = newCityPriceHistory[assetId] || [basePrice];
-          newCityPriceHistory[assetId] = [...prevHistory, newPrice].slice(-WINDOW);
+          let history = cityPriceHistory[assetId];
+          if (!history) {
+            history = [basePrice];
+            cityPriceHistory[assetId] = history;
+          }
+          history.push(newPrice);
+          if (history.length > WINDOW) {
+            history.shift();
+          }
 
           const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;
           newCityChangePct[assetId] = Number(rawChangePct.toFixed(2));
         });
 
         newPrices[cityId] = newCityPrices;
-        newPriceHistory[cityId] = newCityPriceHistory;
+        newPriceHistory[cityId] = cityPriceHistory;
         newChangePct[cityId] = newCityChangePct;
       });
 
@@ -365,7 +372,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       const newSignalHistory = { ...state.signalHistory };
 
       updates.forEach(({ cityId, signals }) => {
-        const cityHistory = { ...(newSignalHistory[cityId] ?? {}) };
+        const cityHistory = state.signalHistory[cityId] || {};
 
         (Object.keys(signals) as SignalKey[]).forEach((key) => {
           const value = signals[key];
@@ -373,8 +380,15 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
             return;
           }
 
-          const previous = cityHistory[key] ?? [];
-          cityHistory[key] = [...previous, value].slice(-WINDOW);
+          let history = cityHistory[key];
+          if (!history) {
+            history = [];
+            cityHistory[key] = history;
+          }
+          history.push(value);
+          if (history.length > WINDOW) {
+            history.shift();
+          }
         });
 
         newSignalHistory[cityId] = cityHistory;

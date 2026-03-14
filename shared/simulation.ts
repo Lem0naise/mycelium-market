@@ -18,7 +18,7 @@ const STORM_REPULSION_BUFFER_DEG = 14;
 const STORM_PREDICTION_LOOKAHEAD_MS = 4_000;
 const STORM_TARGET_MIN_MS = 45_000;
 const STORM_TARGET_MAX_MS = 70_000;
-const STORM_LOITER_DURATION_MS = 1_000;
+const STORM_LOITER_DURATION_MS = 10_000;
 const STORM_TARGET_RAMP_MS = 1_000;
 const STORM_RECENT_HIT_WINDOW_MS = 90_000;
 const STORM_TARGET_NEAR_HIT_FACTOR = 0.58;
@@ -769,6 +769,13 @@ function ensureStormFieldThrough(
   if (normalizedTargetMs < cache.frames[0].timeMs) {
     cache.frames = [createInitialStormFieldFrame(storms)];
     latestFrame = cache.frames[0];
+  }
+
+  const MAX_CATCH_UP_MS = 2000;
+  if (normalizedTargetMs - latestFrame.timeMs > MAX_CATCH_UP_MS) {
+    latestFrame = cloneStormFieldFrame(latestFrame);
+    latestFrame.timeMs = normalizedTargetMs - MAX_CATCH_UP_MS;
+    cache.frames.push(latestFrame);
   }
 
   while (latestFrame.timeMs < normalizedTargetMs) {
