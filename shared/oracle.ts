@@ -492,59 +492,103 @@ export function createFallbackTickers() {
 }
 
 
-// Helper function: Combines multiple sine waves to create smooth, organic, unpredictable weather.
-// Returns a value roughly between -1.0 and 1.0
-function organicNoise(time: number, seed: number) {
-  const slow = Math.sin(time * 0.1 + seed);             // Macro weather patterns (fronts)
-  const medium = Math.sin(time * 0.5 + seed * 1.5) * 0.5; // Daily shifts
-  const fast = Math.cos(time * 1.2 + seed * 2.0) * 0.25;  // Hourly gusts/fluctuations
-  return (slow + medium + fast) / 1.75;
+// ─── Stock-like stochastic weather simulation ────────────────────────────────
+//
+// Each signal is modelled as a second-order process: it has both a current
+// *value* and a *velocity* (momentum).  Every tick:
+//   1. A small continuous noise shock is applied to velocity.
+//   2. With low probability a large impulse hits (regime change / sudden rush).
+//   3. A weak mean-reversion force nudges velocity back toward the city baseline.
+//   4. Velocity is partially preserved (momentum decay).
+//   5. The value advances by velocity and is clamped to physical limits.
+//
+// This produces behaviour very similar to a stock price: sustained trends,
+// occasional sharp reversals, and periods of calm.  Unlike the old sine-wave
+// approach it has *memory*, so signals cannot be recomputed from the clock
+// alone — they live in the module-level `fallbackSignalState` object below.
+
+type SignalSimConfig = {
+  momentumDecay: number;   // fraction of velocity kept each tick [0,1]; higher = longer trends
+  volatility: number;      // std-dev of the continuous noise shock (signal units/tick)
+  meanRevStrength: number; // fraction of (baseline - value) added to velocity each tick
+  jumpProb: number;        // probability per tick of a sudden large impulse
+  jumpScale: number;       // impulse size = volatility × jumpScale
+};
+
+const SIGNAL_SIM: Record<SignalKey, SignalSimConfig> = {
+  // Temperature: long, slow trends — can drift 15-20 °C over several minutes.
+  temperature:  { momentumDecay: 0.97, volatility: 0.06,  meanRevStrength: 0.003, jumpProb: 0.005, jumpScale: 12 },
+  // Rain: bursty — intense episodes that recede quickly, strong mean reversion.
+  rain:         { momentumDecay: 0.86, volatility: 0.10,  meanRevStrength: 0.030, jumpProb: 0.010, jumpScale: 10 },
+  // Wind: medium persistence, gusty spikes.
+  wind:         { momentumDecay: 0.90, volatility: 0.20,  meanRevStrength: 0.005, jumpProb: 0.008, jumpScale: 8  },
+  // Air quality: gradual, persistent shifts (pollution fronts).
+  airQuality:   { momentumDecay: 0.95, volatility: 0.60,  meanRevStrength: 0.003, jumpProb: 0.006, jumpScale: 7  },
+  // Humidity: slow, drifts with temperature/rain trends.
+  humidity:     { momentumDecay: 0.95, volatility: 0.30,  meanRevStrength: 0.003, jumpProb: 0.004, jumpScale: 6  },
+  // Soil moisture: inertia-heavy, responds slowly.
+  soilMoisture: { momentumDecay: 0.97, volatility: 0.12,  meanRevStrength: 0.003, jumpProb: 0.003, jumpScale: 5  },
+  // Soil pH: very stable, tiny fluctuations.
+  soilPh:       { momentumDecay: 0.98, volatility: 0.008, meanRevStrength: 0.003, jumpProb: 0.002, jumpScale: 5  },
+};
+
+// Persistent simulation state — survives across ticks for the lifetime of the page.
+type SignalParticle = { value: number; velocity: number };
+const fallbackSignalState: Record<string, Partial<Record<SignalKey, SignalParticle>>> = {};
+
+function initFallbackSignalState() {
+  cities.forEach((city) => {
+    fallbackSignalState[city.id] = {};
+    (Object.keys(SIGNAL_SIM) as SignalKey[]).forEach((key) => {
+      fallbackSignalState[city.id][key] = { value: city.baselines[key], velocity: 0 };
+    });
+  });
 }
 
-export function createFallbackSignals() {
-  // Slowed down the base time so weather fronts hang around a bit longer
-  const t = (Date.now() / 1000) * 0.5;
+export function createFallbackSignals(): EnvironmentalSignal[] {
+  // Lazy initialisation: build state on the first call.
+  if (Object.keys(fallbackSignalState).length === 0) {
+    initFallbackSignalState();
+  }
 
-  return cities.map((city, index) => {
-    // A unique mathematical offset so Tokyo's weather doesn't match London's
-    const seed = index * 3.14;
+  return cities.map((city) => {
+    const cityState = fallbackSignalState[city.id];
+    const out: Partial<Record<SignalKey, number>> = {};
 
-    // Generate unique organic modifiers for each metric
-    const tempNoise = organicNoise(t, seed);
-    const humNoise = organicNoise(t, seed + 10);
-    const windNoise = organicNoise(t, seed + 20);
-    const rainNoise = organicNoise(t, seed + 30);
-    const aqNoise = organicNoise(t, seed + 40);
-    const moistNoise = organicNoise(t, seed + 50);
-    const phNoise = organicNoise(t, seed + 60);
+    (Object.keys(SIGNAL_SIM) as SignalKey[]).forEach((key) => {
+      const sim = SIGNAL_SIM[key];
+      const bounds = signalBounds[key];
+      const particle = cityState[key]!;
+      const center = city.baselines[key];
+
+      // Continuous noise: approximates N(0, volatility²) via scaled uniform.
+      const noise = (Math.random() - 0.5) * sim.volatility * 3.46;
+
+      // Occasional large impulse in a random direction — sudden weather rush.
+      const jump = Math.random() < sim.jumpProb
+        ? (Math.random() < 0.5 ? 1 : -1) * sim.volatility * sim.jumpScale
+        : 0;
+
+      // Weak restoring force toward city-specific baseline.
+      const meanRevForce = (center - particle.value) * sim.meanRevStrength;
+
+      // Second-order update: velocity → value.
+      particle.velocity = particle.velocity * sim.momentumDecay + noise + jump + meanRevForce;
+      particle.value = clamp(particle.value + particle.velocity, bounds.min, bounds.max);
+
+      out[key] = particle.value;
+    });
 
     return {
       cityId: city.id,
       region: city.region,
-      ...city.baselines,
-
-      // Temp: Swings smoothly by ±6 degrees around the city's baseline
-      temperature: clamp(city.baselines.temperature + tempNoise * 8, -10, 45),
-
-      // Humidity: Swings by ±35%
-      humidity: clamp(city.baselines.humidity + humNoise * 25, 0, 100),
-
-      // Rain: Bursty. By subtracting 8 from the multiplier, it stays at 0 most 
-      // of the time, and only rains when the noise peaks high.
-      rain: clamp((rainNoise * 15) - 8, 0, 20),
-
-      // Wind: Gusty, ±22 from baseline
-      wind: clamp(city.baselines.wind + windNoise * 12, 0, 45),
-
-      // Air Quality: ±25 points
-      airQuality: clamp(city.baselines.airQuality + aqNoise * 25, 0, 160),
-
-      // Soil Moisture: ±30% drift
-      soilMoisture: clamp(city.baselines.soilMoisture + moistNoise * 20, 0, 100),
-
-      // Soil pH: Very stable, only shifts ±3.9
-      soilPh: clamp(city.baselines.soilPh + phNoise * 2.9, 4, 9),
-
+      humidity:     round(out.humidity!,     1),
+      rain:         round(out.rain!,         1),
+      temperature:  round(out.temperature!,  1),
+      wind:         round(out.wind!,         1),
+      airQuality:   round(out.airQuality!,   1),
+      soilMoisture: round(out.soilMoisture!, 1),
+      soilPh:       round(out.soilPh!,       2),
       sourceMode: "synthetic" as const
     };
   });
