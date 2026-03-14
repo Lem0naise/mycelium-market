@@ -858,10 +858,7 @@ export function GlobeScene(props: GlobeSceneProps) {
           autoRotateSpeed={0.18}
         />
       </Canvas>
-      <div className="globe-label">
-        <span>Mycelium Market</span>
-        <strong>Planetary pricing surface</strong>
-      </div>
+
     </div>
   );
 }

@@ -759,8 +759,7 @@ function App() {
         {/* 1. Left Section */}
         <div className="header-left">
           <div>
-            <span className="eyebrow">Mycelium Market</span>
-            <h1>The planet is the trader.</h1>
+            <h1>mycelium<br />market</h1>
           </div>
         </div>
 

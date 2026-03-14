@@ -127,19 +127,20 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       if (otherAssets.length > 0) {
         const randomAsset = otherAssets[Math.floor(Math.random() * otherAssets.length)];
         const randomPrice = state.prices[cityId]?.[randomAsset.id] ?? randomAsset.basePrice;
-
-        if (state.cash >= randomPrice) {
+        let randomAmount = 1;
+        randomAmount = Math.floor(Math.random() * (state.cash / randomPrice)) + 1;
+        if (state.cash >= randomPrice * randomAmount) {
           set((cs) => ({
-            cash: cs.cash - randomPrice,
+            cash: cs.cash - randomPrice * randomAmount,
             holdings: {
               ...cs.holdings,
               [cityId]: {
                 ...cs.holdings[cityId],
-                [randomAsset.id]: (cs.holdings[cityId]?.[randomAsset.id] || 0) + 1
+                [randomAsset.id]: (cs.holdings[cityId]?.[randomAsset.id] || 0) + randomAmount
               }
             }
           }));
-          redirectBuy = { assetId: randomAsset.id, quantity: 1, executedPrice: randomPrice };
+          redirectBuy = { assetId: randomAsset.id, quantity: randomAmount, executedPrice: randomPrice };
         }
       }
 
@@ -147,7 +148,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
         ok: false,
         reason: "humidity-reroute",
         message: redirectBuy
-          ? `Low humidity scrambled the network — bought 1× ${redirectBuy.assetId} at £${redirectBuy.executedPrice.toFixed(2)} instead.`
+          ? `Low humidity scrambled the network — bought ${redirectBuy.quantity}× ${redirectBuy.assetId} at £${redirectBuy.executedPrice.toFixed(2)} instead.`
           : `Low humidity scrambled the network — no affordable assets for redirect.`,
         redirectBuy
       };
