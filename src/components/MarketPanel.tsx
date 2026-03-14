@@ -12,7 +12,6 @@ type MarketPanelProps = {
   preview?: ScenarioPreviewResponse;
   selectedAssetId: string;
   selectedCityId: string;
-  compareCityId: string | null;
   onSelectAsset?: (assetId: string) => void;
 };
 
@@ -21,7 +20,7 @@ const formatCurrency = (value: number) =>
     maximumFractionDigits: value >= 1000 ? 0 : 2
   }).format(value);
 
- 
+
 
 function CityLeaderboard({ rankings }: { rankings: RankedCity[] }) {
   return (
@@ -46,15 +45,13 @@ export function MarketPanel({
   preview,
   selectedAssetId,
   selectedCityId,
-  compareCityId,
   onSelectAsset
 }: MarketPanelProps) {
-  const { cash, holdings, buyAsset, sellAsset, resetPortfolio } = useTradingStore();
+  const { cash, holdings, prices, buyAsset, sellAsset, resetPortfolio } = useTradingStore();
 
   const asset = assetIndex[selectedAssetId];
   const primaryTicker = tickers.find((ticker) => ticker.assetId === selectedAssetId);
   const primaryCity = cityIndex[selectedCityId];
-  const compareCity = compareCityId ? cityIndex[compareCityId] : null;
 
   const currentHoldings = holdings[selectedAssetId] || 0;
   const currentPrice = primaryTicker?.price ?? asset.basePrice;
@@ -73,8 +70,8 @@ export function MarketPanel({
         <div>
           <span>Total Value</span>
           <strong>{formatCurrency(cash + Object.entries(holdings).reduce((sum, [id, qty]) => {
-            const t = tickers.find(t => t.assetId === id);
-            return sum + (t?.price || assetIndex[id].basePrice) * qty;
+            const currentPrice = prices[id] ?? assetIndex[id].basePrice;
+            return sum + currentPrice * qty;
           }, 0))}</strong>
         </div>
       </div>
@@ -114,16 +111,16 @@ export function MarketPanel({
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block' }}>Owned</span>
             <strong style={{ fontSize: '1.2rem' }}>{currentHoldings}</strong>
           </div>
-          <button 
-            className="action-btn buy-btn" 
+          <button
+            className="action-btn buy-btn"
             onClick={() => buyAsset(selectedAssetId, 1)}
             disabled={cash < currentPrice}
-            style={{ padding: '8px 16px', background: 'var(--accent)', color: '#000', border: 'none', borderRadius: '4px', cursor: cash >= currentPrice ? 'pointer' : 'not-allowed', opacity: cash >= currentPrice ? 1 : 0.5, fontWeight: 'bold' }}
+            style={{ padding: '8px 16px', background: 'var(--accent)', color: 'white', border: 'none', borderRadius: '4px', cursor: cash >= currentPrice ? 'pointer' : 'not-allowed', opacity: cash >= currentPrice ? 1 : 0.5, fontWeight: 'bold' }}
           >
             BUY 1
           </button>
-          <button 
-            className="action-btn sell-btn" 
+          <button
+            className="action-btn sell-btn"
             onClick={() => sellAsset(selectedAssetId, 1)}
             disabled={currentHoldings <= 0}
             style={{ padding: '8px 16px', background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '4px', cursor: currentHoldings > 0 ? 'pointer' : 'not-allowed', opacity: currentHoldings > 0 ? 1 : 0.5, fontWeight: 'bold' }}

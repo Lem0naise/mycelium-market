@@ -16,14 +16,12 @@ function App() {
   const {
     selectedAssetId,
     selectedCityId,
-    compareCityId,
     audioEnabled,
     scenario,
     oracleHistory,
     feedHistory,
     setAsset,
     setCity,
-    setCompareCity,
     setFeed,
     pushOracleSpeech
   } = useAppStore();
@@ -43,12 +41,11 @@ function App() {
   });
 
   const previewQuery = useQuery({
-    queryKey: ["preview", "live", selectedAssetId, selectedCityId, compareCityId],
+    queryKey: ["preview", "live", selectedAssetId, selectedCityId],
     queryFn: () =>
       previewScenario({
         assetId: selectedAssetId,
         cityId: selectedCityId,
-        compareCityId: compareCityId ?? undefined,
         mode: "live"
       }),
     enabled: marketsQuery.isSuccess
@@ -116,19 +113,6 @@ function App() {
               ))}
             </select>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <span>Compare city</span>
-            <select 
-              value={compareCityId ?? ""} 
-              onChange={(e) => setCompareCity(e.target.value || null)}
-              style={{ background: 'transparent', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', padding: '4px 8px', borderRadius: '4px' }}
-            >
-              <option value="" style={{ background: '#000' }}>None</option>
-              {cities.filter(c => c.id !== selectedCityId).map((city) => (
-                <option key={city.id} value={city.id} style={{ background: '#000' }}>{city.name}</option>
-              ))}
-            </select>
-          </div>
           <div>
             <span>Primary spread</span>
             <strong>
@@ -159,7 +143,6 @@ function App() {
           <Suspense fallback={<div className="globe-loading">Calibrating planetary mesh...</div>}>
             <GlobeScene
               selectedCityId={selectedCityId}
-              compareCityId={compareCityId}
               selectedAssetId={selectedAssetId}
               signals={signals}
               rankings={previewQuery.data?.rankings ?? []}
@@ -178,7 +161,6 @@ function App() {
             preview={previewQuery.data}
             selectedAssetId={selectedAssetId}
             selectedCityId={selectedCityId}
-            compareCityId={compareCityId}
             onSelectAsset={setAsset}
           />
         </motion.div>

@@ -1,9 +1,5 @@
 import { create } from "zustand";
-import {
-  defaultAssetId,
-  defaultCityId,
-  defaultCompareCityId
-} from "../../shared/data";
+import { defaultAssetId, defaultCityId } from "../../shared/data";
 import type { EventFeedItem, OracleSpeech, ScenarioPatch } from "../../shared/types";
 
 type ScenarioControls = Omit<ScenarioPatch, "targetCityId">;
@@ -11,7 +7,6 @@ type ScenarioControls = Omit<ScenarioPatch, "targetCityId">;
 type AppState = {
   selectedAssetId: string;
   selectedCityId: string;
-  compareCityId: string | null;
   liveMode: "live" | "demo";
   audioEnabled: boolean;
   scenario: ScenarioControls;
@@ -19,7 +14,6 @@ type AppState = {
   feedHistory: EventFeedItem[];
   setAsset: (assetId: string) => void;
   setCity: (cityId: string) => void;
-  setCompareCity: (cityId: string | null) => void;
   setLiveMode: (mode: "live" | "demo") => void;
   toggleAudio: () => void;
   setScenarioValue: (key: keyof ScenarioControls, value: number) => void;
@@ -41,7 +35,6 @@ const initialScenario: ScenarioControls = {
 export const useAppStore = create<AppState>((set) => ({
   selectedAssetId: defaultAssetId,
   selectedCityId: defaultCityId,
-  compareCityId: defaultCompareCityId,
   liveMode: "live",
   audioEnabled: true,
   scenario: initialScenario,
@@ -49,7 +42,6 @@ export const useAppStore = create<AppState>((set) => ({
   feedHistory: [],
   setAsset: (selectedAssetId) => set({ selectedAssetId }),
   setCity: (selectedCityId) => set({ selectedCityId }),
-  setCompareCity: (compareCityId) => set({ compareCityId }),
   setLiveMode: (liveMode) => set({ liveMode }),
   toggleAudio: () => set((state) => ({ audioEnabled: !state.audioEnabled })),
   setScenarioValue: (key, value) =>
@@ -74,4 +66,3 @@ export const useAppStore = create<AppState>((set) => ({
         .slice(0, 14)
     }))
 }));
-

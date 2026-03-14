@@ -1,11 +1,11 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import { assetProfiles } from "../../shared/data";
 
 export type TradingState = {
   cash: number;
   holdings: Record<string, number>;
   prices: Record<string, number>;
+  changePct: Record<string, number>;
   
   buyAsset: (assetId: string, quantity?: number) => void;
   sellAsset: (assetId: string, quantity?: number) => void;
@@ -16,16 +16,18 @@ export type TradingState = {
 const INITIAL_CASH = 1000000;
 
 const initialPrices: Record<string, number> = {};
+const initialChangePct: Record<string, number> = {};
 assetProfiles.forEach((asset) => {
   initialPrices[asset.id] = asset.basePrice;
+  initialChangePct[asset.id] = 0;
 });
 
 export const useTradingStore = create<TradingState>()(
-  persist(
-    (set) => ({
-      cash: INITIAL_CASH,
-      holdings: {},
-      prices: { ...initialPrices },
+  (set) => ({
+    cash: INITIAL_CASH,
+    holdings: {},
+    prices: { ...initialPrices },
+    changePct: { ...initialChangePct },
 
       buyAsset: (assetId, quantity = 1) =>
         set((state) => {
@@ -75,6 +77,7 @@ export const useTradingStore = create<TradingState>()(
       tickPrices: (earthDeltas) =>
         set((state) => {
           const newPrices = { ...state.prices };
+          const newChangePct = { ...state.changePct };
           
           Object.keys(newPrices).forEach((assetId) => {
             const delta = earthDeltas[assetId] || 0;
@@ -83,17 +86,15 @@ export const useTradingStore = create<TradingState>()(
             const baseMultiplier = 1 + (delta * 0.001); // 1 Earth Delta = 0.1% move per tick
             const volatility = 1 + (Math.random() - 0.5) * 0.01; 
             
-            // Apply drift
-            newPrices[assetId] = Math.max(0.01, newPrices[assetId] * baseMultiplier * volatility);
+            const oldPrice = newPrices[assetId];
+            const newPrice = Math.max(0.01, oldPrice * baseMultiplier * volatility);
+            newPrices[assetId] = newPrice;
+            newChangePct[assetId] = Number((((newPrice - oldPrice) / oldPrice) * 100).toFixed(2));
           });
 
-          return { prices: newPrices };
+          return { prices: newPrices, changePct: newChangePct };
         }),
 
-      resetPortfolio: () => set({ cash: INITIAL_CASH, holdings: {}, prices: { ...initialPrices } })
-    }),
-    {
-      name: "terra-arbitrage-trading-storage"
-    }
-  )
+      resetPortfolio: () => set({ cash: INITIAL_CASH, holdings: {}, prices: { ...initialPrices }, changePct: { ...initialChangePct } })
+    })
 );

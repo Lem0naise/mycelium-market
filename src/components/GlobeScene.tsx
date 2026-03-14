@@ -11,7 +11,6 @@ import type { EnvironmentalSignal, RankedCity } from "../../shared/types";
 
 type GlobeSceneProps = {
   selectedCityId: string;
-  compareCityId: string | null;
   selectedAssetId: string;
   signals: EnvironmentalSignal[];
   rankings: RankedCity[];
@@ -25,7 +24,6 @@ type MapLabel = {
   color: string;
   altitude: number;
   isSelected?: boolean;
-  isCompare?: boolean;
 };
 
 type GlobePointDatum = {
@@ -98,23 +96,21 @@ function toRgba(hex: string, alpha: number) {
 function buildPointData(
   signals: EnvironmentalSignal[],
   rankings: RankedCity[],
-  selectedCityId: string,
-  compareCityId: string | null
+  selectedCityId: string
 ) {
   return signals.map<GlobePointDatum>((signal) => {
     const city = cityIndex[signal.cityId];
     const ranking = rankings.find((item) => item.cityId === signal.cityId);
     const intensity = (ranking?.travelScore ?? 40) / 100;
     const isSelected = signal.cityId === selectedCityId;
-    const isCompare = signal.cityId === compareCityId;
 
     return {
       id: signal.cityId,
       lat: city.lat,
       lng: city.lon,
-      color: isSelected ? "#f7ff96" : isCompare ? "#7fb9ff" : city.accentColor,
-      altitude: isSelected ? 0.13 : isCompare ? 0.1 : 0.05 + intensity * 0.04,
-      radius: isSelected ? 0.34 : isCompare ? 0.26 : 0.14 + intensity * 0.08
+      color: isSelected ? "#f7ff96" : city.accentColor,
+      altitude: isSelected ? 0.13 : 0.05 + intensity * 0.04,
+      radius: isSelected ? 0.34 : 0.14 + intensity * 0.08
     };
   });
 }
@@ -159,30 +155,27 @@ function buildArcData(selectedCityId: string, selectedAssetId: string) {
   }));
 }
 
-function buildCityLabels(selectedCityId: string, compareCityId: string | null) {
+function buildCityLabels(selectedCityId: string) {
   return cities.map<MapLabel>((city) => {
     const isSelected = city.id === selectedCityId;
-    const isCompare = city.id === compareCityId;
 
     return {
       id: `city-${city.id}`,
       text: city.name,
       lat: city.lat,
       lng: city.lon,
-      color: isSelected ? "#f7ff96" : isCompare ? "#9fc9ff" : "#d8e0e7",
-      altitude: isSelected ? 0.142 : isCompare ? 0.118 : 0.088,
-      isSelected,
-      isCompare
+      color: isSelected ? "#f7ff96" : "#d8e0e7",
+      altitude: isSelected ? 0.142 : 0.088,
+      isSelected
     };
   });
 }
 
 function CityNameLabels({
   globe,
-  selectedCityId,
-  compareCityId
-}: Pick<GlobeSceneProps, "selectedCityId" | "compareCityId"> & { globe: ThreeGlobe }) {
-  const labels = useMemo(() => buildCityLabels(selectedCityId, compareCityId), [selectedCityId, compareCityId]);
+  selectedCityId
+}: Pick<GlobeSceneProps, "selectedCityId"> & { globe: ThreeGlobe }) {
+  const labels = useMemo(() => buildCityLabels(selectedCityId), [selectedCityId]);
   const camera = useThree((state) => state.camera);
   const anchorRefs = useRef<Array<THREE.Group | null>>([]);
   const chipRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -233,8 +226,7 @@ function CityNameLabels({
                 }}
                 className={[
                   "city-marker-label",
-                  label.isSelected ? "selected" : "",
-                  label.isCompare ? "compare" : ""
+                  label.isSelected ? "selected" : ""
                 ]
                   .filter(Boolean)
                   .join(" ")}
@@ -311,8 +303,8 @@ function GlobeObject(props: GlobeSceneProps) {
   }, []);
 
   const pointData = useMemo(
-    () => buildPointData(props.signals, props.rankings, props.selectedCityId, props.compareCityId),
-    [props.signals, props.rankings, props.selectedCityId, props.compareCityId]
+    () => buildPointData(props.signals, props.rankings, props.selectedCityId),
+    [props.signals, props.rankings, props.selectedCityId]
   );
   const ringData = useMemo(() => buildRingData(props.signals), [props.signals]);
   const arcData = useMemo(() => buildArcData(props.selectedCityId, props.selectedAssetId), [props.selectedCityId, props.selectedAssetId]);
@@ -342,7 +334,7 @@ function GlobeObject(props: GlobeSceneProps) {
   return (
     <>
       <primitive object={globe} />
-      <CityNameLabels globe={globe} selectedCityId={props.selectedCityId} compareCityId={props.compareCityId} />
+      <CityNameLabels globe={globe} selectedCityId={props.selectedCityId} />
     </>
   );
 }
