@@ -503,7 +503,7 @@ function organicNoise(time: number, seed: number) {
 
 export function createFallbackSignals() {
   // Slowed down the base time so weather fronts hang around a bit longer
-  const t = (Date.now() / 60000) * 0.5;
+  const t = (Date.now() / 1000) * 0.5;
 
   return cities.map((city, index) => {
     // A unique mathematical offset so Tokyo's weather doesn't match London's
@@ -524,26 +524,26 @@ export function createFallbackSignals() {
       ...city.baselines,
 
       // Temp: Swings smoothly by ±6 degrees around the city's baseline
-      temperature: clamp(city.baselines.temperature + tempNoise * 16, -10, 45),
+      temperature: clamp(city.baselines.temperature + tempNoise * 8, -10, 45),
 
       // Humidity: Swings by ±35%
-      humidity: clamp(city.baselines.humidity + humNoise * 35, 0, 100),
+      humidity: clamp(city.baselines.humidity + humNoise * 25, 0, 100),
 
       // Rain: Bursty. By subtracting 8 from the multiplier, it stays at 0 most 
       // of the time, and only rains when the noise peaks high.
-      rain: clamp((rainNoise * 25) - 18, 0, 20),
+      rain: clamp((rainNoise * 15) - 8, 0, 20),
 
       // Wind: Gusty, ±22 from baseline
-      wind: clamp(city.baselines.wind + windNoise * 22, 0, 45),
+      wind: clamp(city.baselines.wind + windNoise * 12, 0, 45),
 
-      // Air Quality: ±45 points
-      airQuality: clamp(city.baselines.airQuality + aqNoise * 45, 0, 160),
+      // Air Quality: ±25 points
+      airQuality: clamp(city.baselines.airQuality + aqNoise * 25, 0, 160),
 
       // Soil Moisture: ±30% drift
-      soilMoisture: clamp(city.baselines.soilMoisture + moistNoise * 30, 0, 100),
+      soilMoisture: clamp(city.baselines.soilMoisture + moistNoise * 20, 0, 100),
 
       // Soil pH: Very stable, only shifts ±3.9
-      soilPh: clamp(city.baselines.soilPh + phNoise * 3.9, 4, 9),
+      soilPh: clamp(city.baselines.soilPh + phNoise * 2.9, 4, 9),
 
       sourceMode: "synthetic" as const
     };
