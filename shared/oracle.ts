@@ -213,18 +213,11 @@ export function buildOracleText(
   compareCityName?: string,
   compare?: OracleComputation | null
 ) {
-  const opening =
-    primary.severity === "critical"
-      ? "The ground has become louder than the market."
-      : primary.severity === "alert"
-        ? "A hidden law is asserting itself."
-        : "The planet is repricing your conviction.";
-
   const comparison = compare && compareCityName
-    ? ` ${cityName} holds a ${primary.cityAdvantage >= 0 ? "stronger" : "weaker"} planetary edge than ${compareCityName}.`
+    ? ` Compared to ${compareCityName}, ${cityName} is ${primary.cityAdvantage >= 0 ? "stronger" : "weaker"}.`
     : "";
 
-  return `${opening} ${asset.label} bends toward ${cityName} with an Earth Delta of ${primary.earthDelta > 0 ? "+" : ""}${primary.earthDelta}. ${primary.rationaleTokens.join(", ")}.${comparison}`.trim();
+  return `The environmental conditions in ${cityName} are currently causing ${asset.label} to shift by ${primary.earthDelta > 0 ? "+" : ""}${primary.earthDelta}%. Primary factors: ${primary.rationaleTokens.join(", ")}.${comparison}`;
 }
 
 export function buildFeed(
@@ -330,18 +323,12 @@ export function generateOracleSpeechText(
   const asset = assetIndex[assetId] ?? assetIndex[defaultAssetId];
   const cityName = cityIndex[cityId]?.name ?? cityId;
   const compareCityName = compareCityId ? cityIndex[compareCityId]?.name ?? compareCityId : undefined;
-  const prefix =
-    computation.severity === "critical"
-      ? "Listen carefully."
-      : computation.severity === "alert"
-        ? "Observe the drift."
-        : "Mark this shift.";
 
   const compareLine = compareCityName
-    ? ` ${cityName} now trades against ${compareCityName} at a spread of ${Math.abs(computation.cityAdvantage)} Earth Delta.`
+    ? ` ${cityName} is currently trading against ${compareCityName} at a spread of ${Math.abs(computation.cityAdvantage)} Earth Delta.`
     : "";
 
-  return `${prefix} ${asset.label} is being repriced by ${cityName}. ${computation.rationaleTokens.join(", ")}.${compareLine} Travel if you want the market to obey the weather.`;
+  return `Update: ${asset.label} is being affected by environmental factors in ${cityName}. Contributing factors are: ${computation.rationaleTokens.join(", ")}.${compareLine}`;
 }
 
 export function createFallbackTickers() {

@@ -43,7 +43,6 @@ export type AssetProfile = {
   homeRegions: string[];
   ecologicalWeights: Record<SignalKey, number>;
   triggerRules: AssetTriggerRule[];
-  personalityTone: string;
 };
 
 export type OracleComputation = {
