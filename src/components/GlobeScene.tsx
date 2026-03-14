@@ -6,7 +6,7 @@ import * as THREE from "three";
 import ThreeGlobe from "three-globe";
 import { feature } from "topojson-client";
 import countriesTopology from "world-atlas/countries-110m.json";
-import { assetProfiles, cities, cityIndex } from "../../shared/data";
+import { cities, cityIndex } from "../../shared/data";
 import type {
   EnvironmentalSignal,
   FlightState,
@@ -255,29 +255,11 @@ function buildRingData(
 }
 
 export function buildArcData(
-  focusedCityId: string,
-  selectedAssetId: string,
+  _focusedCityId: string,
+  _selectedAssetId: string,
   _storms: StormSnapshot[],
   flight: FlightState | null
 ) {
-  const focusedCity = cityIndex[focusedCityId];
-  const asset = assetProfiles.find((entry) => entry.id === selectedAssetId) ?? assetProfiles[0];
-  const targetArcs = cities
-    .filter((city) => asset.homeRegions.includes(city.region) && city.id !== focusedCityId)
-    .map<GlobeArcDatum>((city, index) => ({
-      id: `${focusedCityId}-${city.id}`,
-      startLat: focusedCity.lat,
-      startLng: focusedCity.lon,
-      endLat: city.lat,
-      endLng: city.lon,
-      color: [toRgba(asset.accentColor, 0.72), toRgba(asset.accentColor, 0.08)],
-      altitude: 0.14,
-      dashLength: 0.28,
-      dashGap: 0.9,
-      dashInitialGap: index * 0.1,
-      dashAnimateTime: 2400 + index * 180
-    }));
-
   const flightArc = flight
     ? [
         {
@@ -296,7 +278,7 @@ export function buildArcData(
       ]
     : [];
 
-  return [...targetArcs, ...flightArc];
+  return flightArc;
 }
 
 function buildCityLabels(focusedCityId: string, currentCityId: string, blockedCityIds: string[]) {
@@ -433,8 +415,65 @@ function StormFootprints({
   const globeScale = useMemo(() => baseRadius / globe.getGlobeRadius(), [globe]);
   const primarySwirlRefs = useRef<Array<THREE.Group | null>>([]);
   const secondarySwirlRefs = useRef<Array<THREE.Group | null>>([]);
+  const sharedAssets = useMemo(() => {
+    const outerFill = new THREE.CircleGeometry(1, STORM_FOOTPRINT_SEGMENTS);
+    const outline = buildStormOutlineGeometry(1);
+    const swirl = buildStormSwirlGeometry(1);
+    const fillMaterial = new THREE.MeshBasicMaterial({
+      color: STORM_FOOTPRINT_FILL,
+      transparent: true,
+      opacity: STORM_FOOTPRINT_FILL_OPACITY,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    });
+    const outlineMaterial = new THREE.LineBasicMaterial({
+      color: STORM_FOOTPRINT_OUTLINE,
+      transparent: true,
+      opacity: STORM_FOOTPRINT_OUTLINE_OPACITY,
+      depthWrite: false
+    });
+    const swirlPrimaryMaterial = new THREE.LineBasicMaterial({
+      color: STORM_SWIRL_COLOR,
+      transparent: true,
+      opacity: STORM_SWIRL_PRIMARY_OPACITY,
+      depthWrite: false
+    });
+    const swirlSecondaryMaterial = new THREE.LineBasicMaterial({
+      color: STORM_SWIRL_COLOR,
+      transparent: true,
+      opacity: STORM_SWIRL_SECONDARY_OPACITY,
+      depthWrite: false
+    });
 
-  const geometries = useMemo(() => {
+    return {
+      outerFill,
+      outline,
+      swirl,
+      fillMaterial,
+      outlineMaterial,
+      swirlPrimaryMaterial,
+      swirlSecondaryMaterial
+    };
+  }, []);
+  const sharedSwirlLines = useMemo(
+    () =>
+      storms.map((_, index) => {
+        const primary = new THREE.Line(sharedAssets.swirl, sharedAssets.swirlPrimaryMaterial);
+        const secondary = new THREE.Line(sharedAssets.swirl, sharedAssets.swirlSecondaryMaterial);
+        primary.renderOrder = 5;
+        secondary.renderOrder = 5;
+        secondary.rotation.z = Math.PI;
+
+        return {
+          id: `storm-swirl-${index}`,
+          primary,
+          secondary
+        };
+      }),
+    [sharedAssets, storms.length]
+  );
+
+  const stormTransforms = useMemo(() => {
     return storms.map((storm) => {
       const centerCoords = globe.getCoords(storm.lat, storm.lon, 0.009);
       const center = new THREE.Vector3(
@@ -453,39 +492,12 @@ function StormFootprints({
         new THREE.Vector3(0, 0, 1),
         center.clone().normalize()
       );
-      const outerFill = new THREE.CircleGeometry(localRadius, STORM_FOOTPRINT_SEGMENTS);
-      const outline = buildStormOutlineGeometry(localRadius);
-
-      const swirl = buildStormSwirlGeometry(localRadius);
-      const swirlPrimaryMaterial = new THREE.LineBasicMaterial({
-        color: STORM_SWIRL_COLOR,
-        transparent: true,
-        opacity: STORM_SWIRL_PRIMARY_OPACITY,
-        depthWrite: false
-      });
-      const swirlSecondaryMaterial = new THREE.LineBasicMaterial({
-        color: STORM_SWIRL_COLOR,
-        transparent: true,
-        opacity: STORM_SWIRL_SECONDARY_OPACITY,
-        depthWrite: false
-      });
-      const swirlPrimaryLine = new THREE.Line(swirl, swirlPrimaryMaterial);
-      const swirlSecondaryLine = new THREE.Line(swirl, swirlSecondaryMaterial);
-      swirlPrimaryLine.renderOrder = 5;
-      swirlSecondaryLine.renderOrder = 5;
-      swirlSecondaryLine.rotation.z = Math.PI;
 
       return {
         id: storm.stormId,
         center,
         swirlQuaternion,
-        outerFill,
-        outline,
-        swirl,
-        swirlPrimaryMaterial,
-        swirlSecondaryMaterial,
-        swirlPrimaryLine,
-        swirlSecondaryLine
+        scale: localRadius
       };
     });
   }, [globe, globeScale, storms]);
@@ -511,44 +523,33 @@ function StormFootprints({
 
   useEffect(() => {
     return () => {
-      geometries.forEach((geometrySet) => {
-        geometrySet.outerFill.dispose();
-        geometrySet.outline.dispose();
-        geometrySet.swirl.dispose();
-        geometrySet.swirlPrimaryMaterial.dispose();
-        geometrySet.swirlSecondaryMaterial.dispose();
-      });
+      sharedAssets.outerFill.dispose();
+      sharedAssets.outline.dispose();
+      sharedAssets.swirl.dispose();
+      sharedAssets.fillMaterial.dispose();
+      sharedAssets.outlineMaterial.dispose();
+      sharedAssets.swirlPrimaryMaterial.dispose();
+      sharedAssets.swirlSecondaryMaterial.dispose();
     };
-  }, [geometries]);
+  }, [sharedAssets]);
 
   return (
     <group>
-      {geometries.map((geometrySet, index) => (
-        <group key={geometrySet.id}>
-          <group position={geometrySet.center} quaternion={geometrySet.swirlQuaternion}>
-            <mesh geometry={geometrySet.outerFill} renderOrder={3}>
-              <meshBasicMaterial
-                color={STORM_FOOTPRINT_FILL}
-                transparent
-                opacity={STORM_FOOTPRINT_FILL_OPACITY}
-                depthWrite={false}
-                side={THREE.DoubleSide}
-              />
-            </mesh>
-            <lineLoop geometry={geometrySet.outline} renderOrder={4}>
-              <lineBasicMaterial
-                color={STORM_FOOTPRINT_OUTLINE}
-                transparent
-                opacity={STORM_FOOTPRINT_OUTLINE_OPACITY}
-                depthWrite={false}
-              />
-            </lineLoop>
+      {stormTransforms.map((stormTransform, index) => (
+        <group key={stormTransform.id}>
+          <group
+            position={stormTransform.center}
+            quaternion={stormTransform.swirlQuaternion}
+            scale={stormTransform.scale}
+          >
+            <mesh geometry={sharedAssets.outerFill} material={sharedAssets.fillMaterial} renderOrder={3} />
+            <lineLoop geometry={sharedAssets.outline} material={sharedAssets.outlineMaterial} renderOrder={4} />
             <group
               ref={(node) => {
                 primarySwirlRefs.current[index] = node;
               }}
             >
-              <primitive object={geometrySet.swirlPrimaryLine} />
+              <primitive object={sharedSwirlLines[index]?.primary} />
             </group>
             <group
               ref={(node) => {
@@ -556,7 +557,7 @@ function StormFootprints({
               }}
               scale={0.74}
             >
-              <primitive object={geometrySet.swirlSecondaryLine} />
+              <primitive object={sharedSwirlLines[index]?.secondary} />
             </group>
           </group>
         </group>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildArcData, buildStormPointData } from "../src/components/GlobeScene";
-import type { StormSnapshot } from "../shared/types";
+import type { FlightState, StormSnapshot } from "../shared/types";
 
 const sampleStorms: StormSnapshot[] = [
   {
@@ -30,10 +30,41 @@ describe("GlobeScene storm helpers", () => {
     expect(buildStormPointData(sampleStorms)).toEqual([]);
   });
 
-  it("does not include storm direction arcs in globe arc data", () => {
+  it("does not include storm direction arcs or idle city-to-city arcs in globe arc data", () => {
     const withoutStorms = buildArcData("reykjavik", "KAICOIN", [], null);
     const withStorms = buildArcData("reykjavik", "KAICOIN", sampleStorms, null);
 
+    expect(withoutStorms).toEqual([]);
     expect(withStorms).toEqual(withoutStorms);
+  });
+
+  it("keeps the actual flight route arc when a flight is active", () => {
+    const flight: FlightState = {
+      id: "flight-1",
+      phase: "en-route",
+      fromCityId: "reykjavik",
+      toCityId: "dubai",
+      startLat: 64.1466,
+      startLon: -21.9426,
+      endLat: 25.2048,
+      endLon: 55.2708,
+      distanceKm: 5000,
+      durationMs: 10000,
+      progress: 0.5,
+      holdProgress: null,
+      holdingStartedAtMs: null,
+      remainingMs: 5000,
+      currentLat: 40,
+      currentLon: 10,
+      orbitAngleDeg: 0,
+      path: [],
+      lastUpdatedAtMs: 0,
+      isReturningHome: false
+    };
+
+    const arcs = buildArcData("reykjavik", "KAICOIN", sampleStorms, flight);
+
+    expect(arcs).toHaveLength(1);
+    expect(arcs[0]?.id).toBe("flight-1-route");
   });
 });

@@ -144,6 +144,7 @@ function App() {
   const [isAppInteractive, setIsAppInteractive] = useState(false);
   const [loadStage, setLoadStage] = useState<GlobeLoadStage>("shell");
   const [simulationMs, setSimulationMs] = useState(0);
+  const [stormSimulationMs, setStormSimulationMs] = useState(0);
   const [gameTick, setGameTick] = useState(0);
   const prevSignalsRef = useRef<Record<string, EnvironmentalSignal>>({});
   const portfolioHistoryRef = useRef<number[]>([]);
@@ -304,14 +305,16 @@ function App() {
   const marketsQuery = useQuery({
     queryKey: ["markets"],
     queryFn: () => fetchMarkets(),
-    refetchInterval: 15_000
+    refetchInterval: 30_000,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false
   });
 
   const baseTickers = marketsQuery.data?.tickers ?? [];
   const stormSystems = useMemo(() => createStormSystems(stormSeed), [stormSeed]);
   const stormSnapshots = useMemo(
-    () => buildStormSnapshots(stormSystems, simulationMs),
-    [stormSystems, simulationMs]
+    () => buildStormSnapshots(stormSystems, stormSimulationMs),
+    [stormSystems, stormSimulationMs]
   );
   const blockedCityIds = useMemo(() => getStormBlockedCityIds(stormSnapshots), [stormSnapshots]);
   const blockedCityKey = useMemo(() => [...blockedCityIds].sort().join(","), [blockedCityIds]);
@@ -414,6 +417,7 @@ function App() {
   useEffect(() => {
     let animationFrameId = 0;
     let lastCommittedMs = -1000;
+    let lastStormCommittedMs = -1000;
 
     const tick = (now: number) => {
       if (simulationStartRef.current === null) {
@@ -424,6 +428,11 @@ function App() {
       if (elapsedMs - lastCommittedMs >= 33) {
         setSimulationMs(elapsedMs);
         lastCommittedMs = elapsedMs;
+      }
+
+      if (elapsedMs - lastStormCommittedMs >= 50) {
+        setStormSimulationMs(elapsedMs);
+        lastStormCommittedMs = elapsedMs;
       }
 
       animationFrameId = window.requestAnimationFrame(tick);
@@ -614,7 +623,11 @@ function App() {
       previousState: createInitialOracleWatchState()
     }).nextState;
 
-    const intervalId = window.setInterval(() => {
+    let idleCallbackId: number | undefined;
+    const requestIdle = window.requestIdleCallback?.bind(window);
+    const cancelIdle = window.cancelIdleCallback?.bind(window);
+
+    const runOracleEvaluation = () => {
       const { notifications, speakable, nextState } = evaluateOracleNotifications({
         ...latestOracleContextRef.current,
         previousState: oracleWatchStateRef.current
@@ -622,9 +635,23 @@ function App() {
 
       oracleWatchStateRef.current = nextState;
       publishOracleNotifications(notifications, speakable);
+    };
+
+    const intervalId = window.setInterval(() => {
+      if (requestIdle) {
+        idleCallbackId = requestIdle(() => runOracleEvaluation(), { timeout: 400 });
+        return;
+      }
+
+      window.setTimeout(runOracleEvaluation, 0);
     }, 20_000);
 
-    return () => window.clearInterval(intervalId);
+    return () => {
+      window.clearInterval(intervalId);
+      if (idleCallbackId !== undefined && cancelIdle) {
+        cancelIdle(idleCallbackId);
+      }
+    };
   }, [baseTickers.length, signals.length]);
 
   useEffect(() => {
