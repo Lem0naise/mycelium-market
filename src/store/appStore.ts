@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { defaultAssetId, defaultCityId } from "../../shared/data";
 import type {
-  EventFeedItem,
   FlightState,
+  OracleNotification,
   OracleSpeech,
   ScenarioPatch
 } from "../../shared/types";
@@ -16,7 +16,7 @@ type AppState = {
   audioEnabled: boolean;
   scenario: ScenarioControls;
   oracleHistory: OracleSpeech[];
-  feedHistory: EventFeedItem[];
+  feedHistory: OracleNotification[];
   stormSeed: number;
   flight: FlightState | null;
   setAsset: (assetId: string) => void;
@@ -27,7 +27,7 @@ type AppState = {
   setScenarioValue: (key: keyof ScenarioControls, value: number) => void;
   resetScenario: () => void;
   pushOracleSpeech: (speech: OracleSpeech) => void;
-  setFeed: (feed: EventFeedItem[]) => void;
+  setFeed: (feed: OracleNotification[]) => void;
 };
 
 const initialScenario: ScenarioControls = {

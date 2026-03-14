@@ -82,7 +82,7 @@ describe("App", () => {
     }) as typeof window.cancelIdleCallback;
 
     useAppStore.setState({
-      selectedAssetId: "KAI",
+      selectedAssetId: "KAICOIN",
       focusedCityId: "abidjan",
       currentCityId: "abidjan",
       audioEnabled: true,
@@ -192,9 +192,9 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "select-tokyo" }));
 
-    const travelPanel = screen.getByText("Flight Deck").closest("section");
-    expect(travelPanel).not.toBeNull();
-    expect(within(travelPanel!).getByText("Tokyo")).toBeInTheDocument();
-    expect(within(travelPanel!).getByText("Abidjan")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/Pricing shown for Tokyo/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/tied to Abidjan/i)).toBeInTheDocument();
   });
 });
