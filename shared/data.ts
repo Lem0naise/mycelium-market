@@ -142,7 +142,7 @@ export const cities: CityProfile[] = [
     }
   },
   {
-    id: "southamton",
+    id: "southampton",
     name: "Southampton",
     country: "United Kingdom",
     region: "Europe",
@@ -153,7 +153,7 @@ export const cities: CityProfile[] = [
     tags: ["commodities"],
     baselines: {
       humidity: 64,
-      rain: 61,
+      rain: 3,
       temperature: 15,
       wind: 34,
       airQuality: 66,
@@ -232,7 +232,7 @@ export const assetProfiles: AssetProfile[] = [
     label: "KaiCoin",
     marketType: "crypto",
     symbol: "KAI-USD",
-    basePrice: 68000,
+    basePrice: 168000,
     accentColor: "#f4c05e",
     homeRegions: ["North America", "East Asia", "Global"],
     // Primary driver: air quality (rises with cleaner air)
@@ -254,7 +254,7 @@ export const assetProfiles: AssetProfile[] = [
     label: "WTFisIndie",
     marketType: "stock",
     symbol: "WTFII",
-    basePrice: 132,
+    basePrice: 300,
     accentColor: "#70ff8d",
     homeRegions: ["North America", "East Asia"],
     // Primary driver: temperature (rises in hot conditions)
@@ -298,7 +298,7 @@ export const assetProfiles: AssetProfile[] = [
     label: "IndoStock",
     marketType: "stock",
     symbol: "IWG",
-    basePrice: 6200,
+    basePrice: 210,
     accentColor: "#5fa81cff",
     homeRegions: ["North America"],
     // Primary driver: rain (rises with more rainfall)
@@ -320,7 +320,7 @@ export const assetProfiles: AssetProfile[] = [
     label: "JoshStock",
     marketType: "stock",
     symbol: "JMW",
-    basePrice: 250,
+    basePrice: 190,
     accentColor: "#e6e6e6",
     homeRegions: ["North America", "Global"],
     // Primary driver: temperature (falls in hot conditions — cold-adapted)
@@ -342,7 +342,7 @@ export const assetProfiles: AssetProfile[] = [
     label: "IndyStock",
     marketType: "stock",
     symbol: "IZN",
-    basePrice: 530,
+    basePrice: 330,
     accentColor: "#4d94ff",
     homeRegions: ["North America"],
     // Primary driver: air quality (rises with cleaner air, weaker than KAI)
@@ -362,7 +362,7 @@ export const assetProfiles: AssetProfile[] = [
 ];
 
 export const defaultAssetId = "KAICOIN";
-export const defaultCityId = "abidjan";
+export const defaultCityId = "southampton";
 
 export const cityIndex = Object.fromEntries(cities.map((city) => [city.id, city]));
 export const assetIndex = Object.fromEntries(assetProfiles.map((asset) => [asset.id, asset]));

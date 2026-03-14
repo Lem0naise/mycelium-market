@@ -51,10 +51,11 @@ function round(value: number, precision = 1) {
   return Math.round(value * factor) / factor;
 }
 
-function normalizeSignal(signal: SignalKey, value: number) {
+function normalizeSignal(signal: SignalKey, value: number, customCenter?: number) {
   const bounds = signalBounds[signal];
+  const center = customCenter !== undefined ? customCenter : bounds.center;
   const spread = (bounds.max - bounds.min) / 2;
-  return clamp((value - bounds.center) / spread, -1.35, 1.35);
+  return clamp((value - center) / spread, -1.35, 1.35);
 }
 
 export function applyScenarioPatch(
@@ -82,10 +83,11 @@ export function computeOracle(
   asset: AssetProfile,
   signal: EnvironmentalSignal,
   baselineValue: number,
-  compareSignal?: EnvironmentalSignal
+  compareSignal?: EnvironmentalSignal,
+  rollingCenters?: Partial<Record<SignalKey, number>>
 ): OracleComputation {
   const contributions = (Object.keys(asset.ecologicalWeights) as SignalKey[]).map((key) => {
-    const normalized = normalizeSignal(key, signal[key]);
+    const normalized = normalizeSignal(key, signal[key], rollingCenters?.[key]);
     return {
       key,
       contribution: normalized * asset.ecologicalWeights[key] * 11.5

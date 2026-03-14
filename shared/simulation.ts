@@ -17,13 +17,13 @@ const TRAIL_SAMPLE_STEP_MS = 1000;
 const TRAIL_DURATION_MS = 10_000;
 const FUTURE_GUIDE_OFFSETS_MS = [4_000, 8_000, 12_000] as const;
 const STORM_CORE_DELTAS = {
-  humidity: 40,
+  humidity: -35,
   rain: 16,
   wind: 22,
-  soilMoisture: 30,
-  temperature: -8,
-  airQuality: 12,
-  soilPh: -0.6
+  soilMoisture: 40,
+  temperature: -12,
+  airQuality: 90,
+  soilPh: -2.0
 } as const;
 const STORM_HUES = ["#7fd9ff", "#98f5ff", "#8db9ff", "#aff4d8", "#7fc9ff", "#88f0ff"];
 
@@ -293,7 +293,7 @@ export function getStormInfluenceAtPoint(
     }
 
     const falloff = 1 - distanceDeg / effectiveRadius;
-    return total + falloff ** 2;
+    return total + falloff ** 2 * snapshot.intensity;
   }, 0);
 }
 
@@ -341,7 +341,7 @@ export function applyStormEffectsToSignals(
       humidity: clamp(signal.humidity + STORM_CORE_DELTAS.humidity * pressure, 0, 100),
       rain: clamp(signal.rain + STORM_CORE_DELTAS.rain * pressure, 0, 20),
       temperature: clamp(signal.temperature + STORM_CORE_DELTAS.temperature * pressure, -10, 45),
-      wind: clamp(signal.wind + STORM_CORE_DELTAS.wind * pressure, 0, 45),
+      wind: clamp(signal.wind + STORM_CORE_DELTAS.wind * pressure, 0, 40),
       airQuality: clamp(signal.airQuality + STORM_CORE_DELTAS.airQuality * pressure, 0, 180),
       soilMoisture: clamp(
         signal.soilMoisture + STORM_CORE_DELTAS.soilMoisture * pressure,

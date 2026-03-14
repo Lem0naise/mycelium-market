@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { assetProfiles, cities } from "../../shared/data";
+import { assetIndex, assetProfiles, cities } from "../../shared/data";
 import type {
   MyceliumSignal,
   SignalKey,
@@ -13,7 +13,6 @@ export type TradingState = {
   holdings: Record<string, Record<string, number>>;
   prices: Record<string, Record<string, number>>;
   changePct: Record<string, Record<string, number>>;
-  changePctHistory: Record<string, Record<string, number[]>>;
   signalHistory: Record<string, Partial<Record<SignalKey, number[]>>>;
   buyAsset: (
     cityId: string,
@@ -32,7 +31,7 @@ export type TradingState = {
   resetPortfolio: () => void;
 };
 
-const INITIAL_CASH = 1000000;
+const INITIAL_CASH = 100000;
 
 const initialHoldings: Record<string, Record<string, number>> = {};
 const initialPrices: Record<string, Record<string, number>> = {};
@@ -103,7 +102,6 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
   holdings: JSON.parse(JSON.stringify(initialHoldings)),
   prices: JSON.parse(JSON.stringify(initialPrices)),
   changePct: JSON.parse(JSON.stringify(initialChangePct)),
-  changePctHistory: {},
   signalHistory: {},
 
   buyAsset: async (cityId, assetId, mycelium, quantity = 1) => {
@@ -222,33 +220,33 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
     set((state) => {
       const newCityPrices = { ...state.prices[cityId] };
       const newCityChangePct = { ...state.changePct[cityId] };
-      const newCityChangePctHistory = { ...(state.changePctHistory[cityId] ?? {}) };
 
       Object.keys(newCityPrices).forEach((assetId) => {
         const delta = earthDeltas[assetId] || 0;
-        // Environmental drive: earthDelta is positive when conditions favour the
-        // asset (signal above centre for +weight, below for -weight) and negative
-        // when they don't. Use a stronger multiplier so the trend is clearly
-        // visible, with only a tiny sprinkle of randomness.
-        const baseMultiplier = 1 + delta * 0.003;
-        const noise = 1 + (Math.random() - 0.5) * 0.001;
-
         const oldPrice = newCityPrices[assetId];
-        const newPrice = Math.max(0.01, oldPrice * baseMultiplier * noise);
+        const basePrice = assetIndex[assetId]?.basePrice ?? oldPrice;
+
+        // Log-scale movement: shift in log-space so all assets move by the same
+        // percentage regardless of their current absolute price level.
+        const logShift = delta * 0.005;
+
+        // Mild mean reversion: pull log(price) back toward log(basePrice).
+        // Strength of 0.02 means a price 10× above base feels ~4.6% pull per tick.
+        const meanRevPull = -0.02 * (Math.log(oldPrice) - Math.log(basePrice));
+
+        const logNoise = (Math.random() - 0.5) * 0.001;
+
+        const newPrice = Math.max(0.01, Math.exp(Math.log(oldPrice) + logShift + meanRevPull + logNoise));
         newCityPrices[assetId] = newPrice;
 
+        // Raw single-tick change — no rolling average, no lag.
         const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;
-        const prevHistory = newCityChangePctHistory[assetId] ?? [];
-        const newHistory = [...prevHistory, rawChangePct].slice(-3);
-        newCityChangePctHistory[assetId] = newHistory;
-        const rollingAvg = newHistory.reduce((sum, value) => sum + value, 0) / newHistory.length;
-        newCityChangePct[assetId] = Number(rollingAvg.toFixed(2));
+        newCityChangePct[assetId] = Number(rawChangePct.toFixed(2));
       });
 
       return {
         prices: { ...state.prices, [cityId]: newCityPrices },
-        changePct: { ...state.changePct, [cityId]: newCityChangePct },
-        changePctHistory: { ...state.changePctHistory, [cityId]: newCityChangePctHistory }
+        changePct: { ...state.changePct, [cityId]: newCityChangePct }
       };
     }),
 
@@ -258,13 +256,12 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       holdings: JSON.parse(JSON.stringify(initialHoldings)),
       prices: JSON.parse(JSON.stringify(initialPrices)),
       changePct: JSON.parse(JSON.stringify(initialChangePct)),
-      changePctHistory: {},
       signalHistory: {}
     }),
 
   recordSignals: (cityId, signals) =>
     set((state) => {
-      const WINDOW = 5;
+      const WINDOW = 10;
       const cityHistory = { ...(state.signalHistory[cityId] ?? {}) };
 
       (Object.keys(signals) as SignalKey[]).forEach((key) => {

@@ -98,14 +98,19 @@ export function MarketPanel({
   const primaryDriver = (Object.entries(asset.ecologicalWeights) as [SignalKey, number][])
     .find(([, weight]) => weight !== 0);
   const driverKey = primaryDriver?.[0];
-  const driverWeight = primaryDriver?.[1] ?? 0;
   const driverMeta = driverKey ? SIGNAL_META[driverKey] : null;
   const driverValue = driverKey && focusedSignal ? focusedSignal[driverKey] : null;
-  const driverRef = driverMeta?.center ?? 0;
-  const driverAboveRef = driverValue !== null && driverValue > driverRef;
-  const isBullish =
-    driverValue !== null &&
-    ((driverWeight > 0 && driverAboveRef) || (driverWeight < 0 && !driverAboveRef));
+
+  // Yesterday comparison: use the second-to-last recorded value for the driver signal
+  const focusedSignalHistory = driverKey ? signalHistory[focusedCityId]?.[driverKey] : undefined;
+  const previousDriverValue =
+    focusedSignalHistory && focusedSignalHistory.length >= 2
+      ? focusedSignalHistory[focusedSignalHistory.length - 2]
+      : null;
+  const isUp: boolean | null =
+    previousDriverValue !== null && driverValue !== null
+      ? driverValue > previousDriverValue
+      : null;
 
   const [isTrading, setIsTrading] = useState(false);
   const [tradeError, setTradeError] = useState<string | null>(null);
@@ -227,9 +232,19 @@ export function MarketPanel({
               marginBottom: "16px",
               padding: "12px 14px",
               borderRadius: "8px",
-              background: isBullish ? "rgba(76,175,80,0.08)" : "rgba(255,77,77,0.08)",
-              border: `1px solid ${isBullish ? "rgba(76,175,80,0.3)" : "rgba(255,77,77,0.3)"
-                }`,
+              background:
+                isUp === null
+                  ? "rgba(100,100,100,0.08)"
+                  : isUp
+                    ? "rgba(76,175,80,0.08)"
+                    : "rgba(255,77,77,0.08)",
+              border: `1px solid ${
+                isUp === null
+                  ? "rgba(100,100,100,0.3)"
+                  : isUp
+                    ? "rgba(76,175,80,0.3)"
+                    : "rgba(255,77,77,0.3)"
+              }`,
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between"
@@ -246,27 +261,25 @@ export function MarketPanel({
                   fontSize: "1.6rem",
                   fontWeight: "bold",
                   lineHeight: 1,
-                  color: isBullish ? "#4caf50" : "#ff4d4d"
+                  color:
+                    isUp === null ? "var(--text)" : isUp ? "#4caf50" : "#ff4d4d"
                 }}
               >
                 {driverValue.toFixed(1)}
                 {driverMeta.unit}
               </div>
             </div>
-            <div
-              style={{
-                fontSize: "0.8rem",
-                fontWeight: "bold",
-                color: isBullish ? "#4caf50" : "#ff4d4d",
-                textAlign: "right"
-              }}
-            >
-              <div style={{ fontSize: "1.2rem" }}>
-                {isBullish ? "▲" : "▼"} {isBullish ? "ABOVE" : "BELOW"}{" "}
-                {driverRef.toFixed(1)}
-                {driverMeta.unit}
+            {isUp !== null && (
+              <div
+                style={{
+                  fontSize: "1.8rem",
+                  fontWeight: "bold",
+                  color: isUp ? "#4caf50" : "#ff4d4d"
+                }}
+              >
+                {isUp ? "▲" : "▼"}
               </div>
-            </div>
+            )}
           </div>
         ) : null}
 
