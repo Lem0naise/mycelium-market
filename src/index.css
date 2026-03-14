@@ -304,7 +304,35 @@ button {
 .left-column,
 .right-column,
 .globe-column {
-  min-height: 0;
+  position: relative;
+  height: 100%;
+  min-height: 70vh;
+}
+
+.globe-stage {
+  position: relative;
+  height: 100%; 
+}
+
+.globe-scene-slot {
+  opacity: 0;
+  transform: scale(0.985);
+  transition:
+    opacity 360ms ease,
+    transform 360ms ease;
+  height: 100%;
+}
+
+.globe-shell {
+  position: relative;
+  height: 100%;
+  min-height: 70vh;
+  border-radius: 34px;
+  overflow: hidden;
+  border: 1px solid rgba(150, 170, 184, 0.16);
+  background:
+    radial-gradient(circle at 50% 20%, rgba(50, 83, 84, 0.16), transparent 40%),
+    rgba(5, 7, 13, 0.92);
 }
 
 .panel {
