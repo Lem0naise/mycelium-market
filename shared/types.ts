@@ -83,6 +83,32 @@ export type OracleSpeech = {
   cooldownUntil: string;
 };
 
+export type OracleNotificationCategory =
+  | "storm"
+  | "driver"
+  | "access"
+  | "flight"
+  | "recovery";
+
+export type OracleNotificationState = "active" | "resolved";
+
+export type OracleNotification = {
+  id: string;
+  eventKey: string;
+  category: OracleNotificationCategory;
+  severity: Severity;
+  title: string;
+  body: string;
+  speakText?: string | null;
+  cityIds: string[];
+  assetIds: string[];
+  affectedValue: number;
+  affectedPortfolioShare: number;
+  holdingsCount: number;
+  timestamp: string;
+  state: OracleNotificationState;
+};
+
 export type StormSystem = {
   id: string;
   seed: number;
@@ -215,15 +241,7 @@ export type CityProfile = {
   baselines: Omit<EnvironmentalSignal, "cityId" | "region" | "sourceMode">;
 };
 
-export type EventFeedItem = {
-  id: string;
-  title: string;
-  body: string;
-  cityId?: string;
-  severity: Severity;
-  kind: "market" | "environment" | "oracle" | "scenario";
-  timestamp: string;
-};
+export type EventFeedItem = OracleNotification;
 
 export type ScenarioPreviewRequest = {
   assetId: string;

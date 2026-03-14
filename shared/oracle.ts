@@ -342,12 +342,19 @@ export function buildFeed(
   return [
     {
       id: `${request.assetId}-${request.cityId}-oracle-${Date.now()}`,
+      eventKey: `${request.assetId}-${request.cityId}-oracle`,
       title: "Planetary Condition Alert",
       body: oracleText,
-      cityId: request.cityId,
+      category: "driver",
       severity: "critical",
-      kind: "oracle",
-      timestamp: new Date().toISOString()
+      speakText: null,
+      cityIds: [request.cityId],
+      assetIds: [request.assetId],
+      affectedValue: 0,
+      affectedPortfolioShare: 0,
+      holdingsCount: 0,
+      timestamp: new Date().toISOString(),
+      state: "active"
     }
   ];
 }

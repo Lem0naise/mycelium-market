@@ -9,7 +9,7 @@ import {
   createStormSystems,
   findFlightHoldProgress
 } from "../shared/simulation";
-import type { StormSnapshot } from "../shared/types";
+import type { EnvironmentalSignal, StormSnapshot } from "../shared/types";
 
 describe("storm and flight simulation", () => {
   it("creates stable session storms that stay within bounds and move over time", () => {
@@ -34,12 +34,30 @@ describe("storm and flight simulation", () => {
   });
 
   it("applies the strongest ecological pressure at the storm core", () => {
-    const baseSignals = createFallbackSignals();
-    const abidjanSignal = baseSignals.find((signal) => signal.cityId === "abidjan");
-    const reykjavikSignal = baseSignals.find((signal) => signal.cityId === "reykjavik");
-
-    expect(abidjanSignal).toBeDefined();
-    expect(reykjavikSignal).toBeDefined();
+    const abidjanSignal: EnvironmentalSignal = {
+      cityId: "abidjan",
+      region: "Gulf of Guinea",
+      humidity: 60,
+      rain: 3,
+      temperature: 28,
+      wind: 8,
+      airQuality: 46,
+      soilMoisture: 55,
+      soilPh: 6.2,
+      sourceMode: "synthetic"
+    };
+    const reykjavikSignal: EnvironmentalSignal = {
+      cityId: "reykjavik",
+      region: "North Atlantic",
+      humidity: 60,
+      rain: 3,
+      temperature: 8,
+      wind: 12,
+      airQuality: 30,
+      soilMoisture: 55,
+      soilPh: 6.7,
+      sourceMode: "synthetic"
+    };
 
     const storm: StormSnapshot = {
       stormId: "test-storm",
@@ -53,15 +71,15 @@ describe("storm and flight simulation", () => {
     };
 
     const [abidjanAfterStorm, reykjavikAfterStorm] = applyStormEffectsToSignals(
-      [abidjanSignal!, reykjavikSignal!],
+      [abidjanSignal, reykjavikSignal],
       [storm]
     );
 
-    expect(abidjanAfterStorm.rain).toBeGreaterThan(abidjanSignal!.rain);
-    expect(abidjanAfterStorm.rain - abidjanSignal!.rain).toBeGreaterThan(
-      reykjavikAfterStorm.rain - reykjavikSignal!.rain
+    expect(abidjanAfterStorm.rain).toBeGreaterThan(abidjanSignal.rain);
+    expect(abidjanAfterStorm.rain - abidjanSignal.rain).toBeGreaterThan(
+      reykjavikAfterStorm.rain - reykjavikSignal.rain
     );
-    expect(abidjanAfterStorm.temperature).toBeLessThan(abidjanSignal!.temperature);
+    expect(abidjanAfterStorm.temperature).toBeLessThan(abidjanSignal.temperature);
   });
 
   it("builds wind guides toward future storm positions", () => {

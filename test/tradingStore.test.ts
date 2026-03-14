@@ -13,7 +13,7 @@ describe("trading store location gating", () => {
   beforeEach(() => {
     useTradingStore.getState().resetPortfolio();
     useAppStore.setState({
-      selectedAssetId: "KAI",
+      selectedAssetId: "IWG",
       focusedCityId: "abidjan",
       currentCityId: "abidjan",
       flight: null
@@ -27,7 +27,7 @@ describe("trading store location gating", () => {
       flight: null
     });
 
-    const result = await useTradingStore.getState().buyAsset("tokyo", "KAI", healthyMycelium, 1);
+    const result = await useTradingStore.getState().buyAsset("tokyo", "IWG", healthyMycelium, 1);
 
     expect(result).toEqual({ ok: false, reason: "not-in-city" });
   });
@@ -39,7 +39,7 @@ describe("trading store location gating", () => {
       flight: createFlightState("abidjan", "tokyo", 0)
     });
 
-    const result = await useTradingStore.getState().buyAsset("tokyo", "KAI", healthyMycelium, 1);
+    const result = await useTradingStore.getState().buyAsset("tokyo", "IWG", healthyMycelium, 1);
 
     expect(result).toEqual({ ok: false, reason: "in-flight" });
   });
@@ -47,19 +47,19 @@ describe("trading store location gating", () => {
   it("allows local buys when grounded in the active city", async () => {
     const result = await useTradingStore.getState().buyAsset(
       "abidjan",
-      "KAI",
+      "IWG",
       healthyMycelium,
       1
     );
 
     expect(result.ok).toBe(true);
-    expect(useTradingStore.getState().holdings.abidjan.KAI).toBe(1);
+    expect(useTradingStore.getState().holdings.abidjan.IWG).toBe(1);
   });
 
   it("rejects trades when the mycelium network is out of range", async () => {
     const result = await useTradingStore.getState().buyAsset(
       "abidjan",
-      "KAI",
+      "IWG",
       {
         soilMoisture: 10,
         soilPh: 6.4,

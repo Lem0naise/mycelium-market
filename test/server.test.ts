@@ -36,7 +36,7 @@ describe("terra arbitrage api", () => {
     });
 
     const response = await resolveScenarioPreview(provider, {
-      assetId: "KAI",
+      assetId: "KAICOIN",
       cityId: "abidjan",
       compareCityId: "reykjavik",
       patch: {

@@ -6,10 +6,14 @@ import { FeedPanel } from "./components/FeedPanel";
 import { MarketPanel } from "./components/MarketPanel";
 import { MyceliumWidget } from "./components/MyceliumWidget";
 import { assetProfiles, cities, cityIndex } from "../shared/data";
+import {
+  createInitialOracleWatchState,
+  createOracleNotification,
+  evaluateOracleNotifications
+} from "../shared/omniscientOracle";
 import { useAppStore } from "./store/appStore";
 import { useTradingStore } from "./store/tradingStore";
 import {
-  checkBoundaryCrossings,
   computeOracle,
   createFallbackSignals,
   createScenarioSnapshot
@@ -26,8 +30,8 @@ import {
 } from "../shared/simulation";
 import type {
   EnvironmentalSignal,
-  EventFeedItem,
   FlightState,
+  OracleNotification,
   OracleSpeakResponse,
   ScenarioPatch,
   Severity,
@@ -40,8 +44,6 @@ import {
 } from "./components/globeBoot";
 
 const GlobeScene = lazy(() => import("./components/GlobeScene"));
-
-const ORACLE_ENABLED = false;
 
 function GlobalLoadingScreen({ stage }: { stage: GlobeLoadStage }) {
   const stageMeta = globeLoadStageMeta[stage];
@@ -93,25 +95,6 @@ function GlobalLoadingScreen({ stage }: { stage: GlobeLoadStage }) {
   );
 }
 
-function createFeedItem(
-  id: string,
-  title: string,
-  body: string,
-  severity: Severity,
-  kind: EventFeedItem["kind"],
-  cityId?: string
-): EventFeedItem {
-  return {
-    id,
-    title,
-    body,
-    cityId,
-    severity,
-    kind,
-    timestamp: new Date().toISOString()
-  };
-}
-
 function buildScenarioPatch(
   focusedCityId: string,
   scenario: ReturnType<typeof useAppStore.getState>["scenario"]
@@ -141,6 +124,15 @@ function describeFlightStatus(flight: FlightState | null) {
   }
 
   return "En route";
+}
+
+function createRuntimeOracleNotification(
+  input: Omit<Parameters<typeof createOracleNotification>[0], "timestamp">
+) {
+  return createOracleNotification({
+    ...input,
+    timestamp: new Date().toISOString()
+  });
 }
 
 function App() {
@@ -179,16 +171,25 @@ function App() {
 
   const speakMutation = useMutation({ mutationFn: speakOracle });
   const audioContextRef = useRef<AudioContext | null>(null);
-  const prevZonesByCityRef = useRef<Record<string, Set<string>>>({});
-  const prevStormStateRef = useRef<Record<string, boolean>>({});
-  const previousFlightPhaseRef = useRef<FlightState["phase"] | null>(null);
-  const previousFlightIdRef = useRef<string | null>(null);
   const oracleFlashTimeoutRef = useRef<number | null>(null);
   const isOracleSpeakingRef = useRef(false);
   const speakPendingRef = useRef(false);
   const simulationStartRef = useRef<number | null>(null);
   const liveSignalsRef = useRef<EnvironmentalSignal[]>(liveSignals);
   const stormSnapshotsRef = useRef<StormSnapshot[]>([]);
+  const latestOracleContextRef = useRef({
+    signals: [] as EnvironmentalSignal[],
+    holdings,
+    prices,
+    cash,
+    blockedCityIds: [] as string[],
+    currentCityId,
+    focusedCityId,
+    flight,
+    tickers: [] as typeof baseTickers
+  });
+  const oracleWatchStateRef = useRef(createInitialOracleWatchState());
+  const lastSpokenNotificationIdRef = useRef<string | null>(null);
 
   const queueOracleSpeech = (text: string, severity: Severity) => {
     if (!audioEnabled || isOracleSpeakingRef.current || speakPendingRef.current) {
@@ -269,6 +270,32 @@ function App() {
       console.error("Audio playback error", error);
       setIsOracleSpeaking(false);
     }
+  };
+
+  const pulseOracleFlash = () => {
+    if (oracleFlashTimeoutRef.current !== null) {
+      window.clearTimeout(oracleFlashTimeoutRef.current);
+    }
+
+    setOracleFlash(true);
+    oracleFlashTimeoutRef.current = window.setTimeout(() => setOracleFlash(false), 1500);
+  };
+
+  const publishOracleNotifications = (
+    notifications: OracleNotification[],
+    speakable: OracleNotification | null = null
+  ) => {
+    if (notifications.length > 0) {
+      setFeed(notifications);
+    }
+
+    if (!speakable?.speakText || lastSpokenNotificationIdRef.current === speakable.id) {
+      return;
+    }
+
+    lastSpokenNotificationIdRef.current = speakable.id;
+    pulseOracleFlash();
+    queueOracleSpeech(speakable.speakText, speakable.severity);
   };
 
   const marketsQuery = useQuery({
@@ -368,6 +395,20 @@ function App() {
   }, [stormSnapshots]);
 
   useEffect(() => {
+    latestOracleContextRef.current = {
+      signals,
+      holdings,
+      prices,
+      cash,
+      blockedCityIds: [...blockedCityIds],
+      currentCityId,
+      focusedCityId,
+      flight,
+      tickers: baseTickers
+    };
+  }, [baseTickers, blockedCityIds, cash, currentCityId, flight, focusedCityId, holdings, prices, signals]);
+
+  useEffect(() => {
     let animationFrameId = 0;
     let lastCommittedMs = -1000;
 
@@ -388,7 +429,11 @@ function App() {
     };
 
     animationFrameId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(animationFrameId);
+    return () => {
+      if (typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -413,7 +458,9 @@ function App() {
     });
 
     return () => {
-      window.cancelAnimationFrame(animationFrameId);
+      if (typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(animationFrameId);
+      }
       if (idleCallbackId !== undefined && cancelIdle) {
         cancelIdle(idleCallbackId);
       }
@@ -457,51 +504,6 @@ function App() {
   }, [speakMutation.isPending]);
 
   useEffect(() => {
-    if (!flight) {
-      previousFlightIdRef.current = null;
-      previousFlightPhaseRef.current = null;
-      return;
-    }
-
-    if (previousFlightIdRef.current !== flight.id) {
-      previousFlightIdRef.current = flight.id;
-      previousFlightPhaseRef.current = flight.phase;
-      return;
-    }
-
-    const previousPhase = previousFlightPhaseRef.current;
-    if (previousPhase !== flight.phase) {
-      if (flight.phase === "holding") {
-        setFeed([
-          createFeedItem(
-            `flight-hold-${flight.id}`,
-            "Flight holding",
-            `${cityIndex[flight.toCityId]?.name ?? flight.toCityId} is blocked by a storm. The aircraft is circling outside the front.`,
-            "critical",
-            "environment",
-            flight.toCityId
-          )
-        ]);
-      }
-
-      if (previousPhase === "holding" && flight.phase === "en-route") {
-        setFeed([
-          createFeedItem(
-            `flight-resume-${flight.id}-${Math.round(simulationMs)}`,
-            "Flight resumed",
-            `Storm path cleared. Resuming approach to ${cityIndex[flight.toCityId]?.name ?? flight.toCityId}.`,
-            "watch",
-            "environment",
-            flight.toCityId
-          )
-        ]);
-      }
-    }
-
-    previousFlightPhaseRef.current = flight.phase;
-  }, [flight, setFeed, simulationMs]);
-
-  useEffect(() => {
     const activeFlight = useAppStore.getState().flight;
     if (!activeFlight) {
       return;
@@ -520,16 +522,6 @@ function App() {
         setCurrentCity(activeFlight.toCityId);
         setFocusedCity(activeFlight.toCityId);
         setFlight(null);
-        setFeed([
-          createFeedItem(
-            `flight-arrived-${activeFlight.id}`,
-            "Returned home",
-            `Back safely in ${cityIndex[activeFlight.toCityId]?.name ?? activeFlight.toCityId}. Trading access restored.`,
-            "calm",
-            "market",
-            activeFlight.toCityId
-          )
-        ]);
         return;
       }
 
@@ -549,16 +541,20 @@ function App() {
       const returnFlight = createReturnFlightState(flightToReverse, nowMs);
       setFocusedCity(returnFlight.toCityId);
       setFlight(returnFlight);
-      setFeed([
-        createFeedItem(
-          `flight-return-${returnFlight.id}`,
-          "Storm forced return",
-          `${cityIndex[flightToReverse.toCityId]?.name ?? flightToReverse.toCityId} is cut off by the visible amber no-fly surface. Aircraft is automatically returning to ${cityIndex[returnFlight.toCityId]?.name ?? returnFlight.toCityId}.`,
-          "critical",
-          "environment",
-          flightToReverse.toCityId
-        )
-      ]);
+      const notification = createRuntimeOracleNotification({
+        eventKey: `flight-return-${returnFlight.id}`,
+        category: "flight",
+        severity: "critical",
+        title: "Storm forced a return",
+        body: `${cityIndex[flightToReverse.toCityId]?.name ?? flightToReverse.toCityId} is cut off by the storm wall. The aircraft is abandoning the approach and returning to ${cityIndex[returnFlight.toCityId]?.name ?? returnFlight.toCityId}.`,
+        speakText: `${cityIndex[flightToReverse.toCityId]?.name ?? flightToReverse.toCityId} has been cut off by the storm wall. The aircraft is returning home now.`,
+        cityIds: [flightToReverse.toCityId, returnFlight.toCityId],
+        assetIds: [],
+        affectedValue: 0,
+        affectedPortfolioShare: 0,
+        holdingsCount: 0
+      });
+      publishOracleNotifications([notification], notification);
     };
 
     if (activeFlight.phase === "holding") {
@@ -593,18 +589,6 @@ function App() {
       setCurrentCity(activeFlight.toCityId);
       setFocusedCity(activeFlight.toCityId);
       setFlight(null);
-      setFeed([
-        createFeedItem(
-          `flight-arrived-${activeFlight.id}`,
-          activeFlight.isReturningHome ? "Returned home" : "Touchdown",
-          activeFlight.isReturningHome
-            ? `Back safely in ${cityIndex[activeFlight.toCityId]?.name ?? activeFlight.toCityId}. Trading access restored.`
-            : `Arrived in ${cityIndex[activeFlight.toCityId]?.name ?? activeFlight.toCityId}. Trading access restored.`,
-          "calm",
-          "market",
-          activeFlight.toCityId
-        )
-      ]);
       return;
     }
 
@@ -620,121 +604,27 @@ function App() {
   }, [setCurrentCity, setFeed, setFlight, setFocusedCity, simulationMs, stormSnapshots]);
 
   useEffect(() => {
-    if (!ORACLE_ENABLED || !audioEnabled || !signals.length) {
+    if (!baseTickers.length || !signals.length) {
       return;
     }
 
-    for (const signal of signals) {
-      if (signal.cityId === currentCityId) {
-        continue;
-      }
+    oracleWatchStateRef.current = evaluateOracleNotifications({
+      ...latestOracleContextRef.current,
+      previousState: createInitialOracleWatchState()
+    }).nextState;
 
-      const cityHoldings = useTradingStore.getState().holdings[signal.cityId] ?? {};
-      const hasHoldings = Object.values(cityHoldings).some((quantity) => quantity > 0);
-      if (!hasHoldings) {
-        continue;
-      }
+    const intervalId = window.setInterval(() => {
+      const { notifications, speakable, nextState } = evaluateOracleNotifications({
+        ...latestOracleContextRef.current,
+        previousState: oracleWatchStateRef.current
+      });
 
-      const currentZones = new Set<string>();
-      if (signal.humidity > 80) currentZones.add("hum-high");
-      if (signal.humidity < 30) currentZones.add("hum-low");
-      if (signal.temperature > 40) currentZones.add("temp-high");
-      if (signal.temperature < -5) currentZones.add("temp-low");
-      if (signal.wind > 35) currentZones.add("wind-high");
-      if (signal.rain > 15) currentZones.add("rain-high");
+      oracleWatchStateRef.current = nextState;
+      publishOracleNotifications(notifications, speakable);
+    }, 20_000);
 
-      const previousZones = prevZonesByCityRef.current[signal.cityId];
-      if (previousZones === undefined) {
-        prevZonesByCityRef.current[signal.cityId] = currentZones;
-        continue;
-      }
-
-      const cityName = cityIndex[signal.cityId]?.name ?? signal.cityId;
-      const crossing = checkBoundaryCrossings(previousZones, currentZones, signal, cityName);
-      prevZonesByCityRef.current[signal.cityId] = currentZones;
-
-      if (!crossing) {
-        continue;
-      }
-
-      if (crossing.exit) {
-        setFeed([
-          createFeedItem(
-            `${signal.cityId}-exit-${Math.round(simulationMs)}`,
-            "Conditions easing",
-            crossing.exit.display,
-            "calm",
-            "environment",
-            signal.cityId
-          )
-        ]);
-      }
-
-      if (crossing.entry) {
-        if (oracleFlashTimeoutRef.current !== null) {
-          window.clearTimeout(oracleFlashTimeoutRef.current);
-        }
-        setOracleFlash(true);
-        oracleFlashTimeoutRef.current = window.setTimeout(() => setOracleFlash(false), 1500);
-        queueOracleSpeech(crossing.entry.speech, "critical");
-      }
-
-      break;
-    }
-  }, [audioEnabled, currentCityId, setFeed, signals, simulationMs]);
-
-  useEffect(() => {
-    const nextStormState: Record<string, boolean> = {};
-
-    for (const city of cities) {
-      const stormed = blockedCityIds.has(city.id);
-      nextStormState[city.id] = stormed;
-
-      const previousStormed = prevStormStateRef.current[city.id];
-      if (previousStormed === undefined) {
-        continue;
-      }
-
-      const cityHoldings = holdings[city.id] ?? {};
-      const hasHoldings = Object.values(cityHoldings).some((quantity) => quantity > 0);
-      if (!hasHoldings) {
-        continue;
-      }
-
-      if (!previousStormed && stormed) {
-        const body = `${city.name} has been swallowed by a roaming storm. Flights are suspended and local ecology is deteriorating fast.`;
-        setFeed([
-          createFeedItem(
-            `storm-enter-${city.id}-${Math.round(simulationMs)}`,
-            "Stormfall over holdings",
-            body,
-            "critical",
-            "environment",
-            city.id
-          )
-        ]);
-
-        if (city.id !== currentCityId) {
-          queueOracleSpeech(`${city.name} is trapped under a severe storm front.`, "critical");
-        }
-      }
-
-      if (previousStormed && !stormed) {
-        setFeed([
-          createFeedItem(
-            `storm-clear-${city.id}-${Math.round(simulationMs)}`,
-            "Storm front clearing",
-            `${city.name} is emerging from the storm track and flight access is reopening.`,
-            "watch",
-            "environment",
-            city.id
-          )
-        ]);
-      }
-    }
-
-    prevStormStateRef.current = nextStormState;
-  }, [blockedCityIds, blockedCityKey, currentCityId, holdings, setFeed, simulationMs]);
+    return () => window.clearInterval(intervalId);
+  }, [baseTickers.length, signals.length]);
 
   useEffect(() => {
     if (!baseTickers.length) {
