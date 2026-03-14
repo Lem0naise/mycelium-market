@@ -205,10 +205,10 @@ export const cities: CityProfile[] = [
 
 export const assetProfiles: AssetProfile[] = [
   {
-    id: "BTC",
-    label: "Bitcoin",
+    id: "KAI",
+    label: "KaiCoin",
     marketType: "crypto",
-    symbol: "BTC-USD",
+    symbol: "KAI-USD",
     basePrice: 68000,
     accentColor: "#f4c05e",
     homeRegions: ["North America", "East Asia", "Global"],
@@ -227,10 +227,10 @@ export const assetProfiles: AssetProfile[] = [
     ],
   },
   {
-    id: "NVDA",
-    label: "NVIDIA",
+    id: "WTFII",
+    label: "WTFisIndie",
     marketType: "stock",
-    symbol: "NVDA",
+    symbol: "WTFII",
     basePrice: 132,
     accentColor: "#70ff8d",
     homeRegions: ["North America", "East Asia"],
@@ -249,10 +249,10 @@ export const assetProfiles: AssetProfile[] = [
     ],
   },
   {
-    id: "TSLA",
-    label: "Tesla",
+    id: "EMB",
+    label: "EmmaBrown",
     marketType: "stock",
-    symbol: "TSLA",
+    symbol: "EMB",
     basePrice: 250,
     accentColor: "#ff4d4d",
     homeRegions: ["North America", "Europe", "East Asia"],
@@ -271,10 +271,10 @@ export const assetProfiles: AssetProfile[] = [
     ],
   },
   {
-    id: "GME",
-    label: "GameStop",
+    id: "JMW",
+    label: "JoshStock",
     marketType: "stock",
-    symbol: "GME",
+    symbol: "JMW",
     basePrice: 25,
     accentColor: "#e6e6e6",
     homeRegions: ["North America", "Global"],
@@ -293,10 +293,10 @@ export const assetProfiles: AssetProfile[] = [
     ],
   },
   {
-    id: "SPY",
-    label: "S&P 500",
+    id: "IZN",
+    label: "IndyStock",
     marketType: "stock",
-    symbol: "SPY",
+    symbol: "IZN",
     basePrice: 530,
     accentColor: "#4d94ff",
     homeRegions: ["North America"],
@@ -316,7 +316,7 @@ export const assetProfiles: AssetProfile[] = [
   }
 ];
 
-export const defaultAssetId = "BTC";
+export const defaultAssetId = "KAI";
 export const defaultCityId = "abidjan";
 
 export const cityIndex = Object.fromEntries(cities.map((city) => [city.id, city]));
