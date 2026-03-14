@@ -200,7 +200,7 @@ export function MarketPanel({
                 ) : null}
               </span>
               <strong>{formatGBP(ticker.price)}</strong>
-              <small className={ticker.changePct >= 0 ? "up" : "down"}>
+              <small className={ticker.changePct >= 0 ? "up textRight" : "down textRight"}>
                 {ticker.changePct >= 0 ? "+" : ""}
                 {ticker.changePct}%
               </small>
@@ -229,13 +229,13 @@ export function MarketPanel({
           const minPrice = Math.min(...historyData);
           const maxPrice = Math.max(...historyData);
           const range = maxPrice - minPrice || 1;
-          
+
           const points = historyData.map((p, i) => {
             const x = (i / (historyData.length - 1)) * 100;
             const y = graphHeight - ((p - minPrice) / range) * graphHeight;
             return `${x},${y}`;
           }).join(' ');
-          
+
           const isUpTrend = historyData[historyData.length - 1] >= historyData[0];
           const strokeColor = isUpTrend ? "#4caf50" : "#ff4d4d";
 
@@ -244,13 +244,13 @@ export function MarketPanel({
               <span className="eyebrow" style={{ display: "block", marginBottom: "8px" }}>
                 Past Prices ({currentCity?.name ?? currentCityId})
               </span>
-              <svg 
-                viewBox={`0 -5 100 ${graphHeight + 10}`} 
-                preserveAspectRatio="none" 
-                style={{ 
-                  width: "100%", 
-                  height: `${graphHeight}px`, 
-                  overflow: "visible" 
+              <svg
+                viewBox={`0 -5 100 ${graphHeight + 10}`}
+                preserveAspectRatio="none"
+                style={{
+                  width: "100%",
+                  height: `${graphHeight}px`,
+                  overflow: "visible"
                 }}
               >
                 <polyline
@@ -278,13 +278,12 @@ export function MarketPanel({
                   : isUp
                     ? "rgba(76,175,80,0.08)"
                     : "rgba(255,77,77,0.08)",
-              border: `1px solid ${
-                isUp === null
-                  ? "rgba(100,100,100,0.3)"
-                  : isUp
-                    ? "rgba(76,175,80,0.3)"
-                    : "rgba(255,77,77,0.3)"
-              }`,
+              border: `1px solid ${isUp === null
+                ? "rgba(100,100,100,0.3)"
+                : isUp
+                  ? "rgba(76,175,80,0.3)"
+                  : "rgba(255,77,77,0.3)"
+                }`,
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between"
