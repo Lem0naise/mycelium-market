@@ -1,100 +1,149 @@
 import { create } from "zustand";
-import { assetProfiles } from "../../shared/data";
+import { assetProfiles, cities } from "../../shared/data";
 
 export type TradingState = {
   cash: number;
-  holdings: Record<string, number>;
-  prices: Record<string, number>;
-  changePct: Record<string, number>;
+  holdings: Record<string, Record<string, number>>; // cityId -> assetId -> quantity
+  prices: Record<string, Record<string, number>>; // cityId -> assetId -> price
+  changePct: Record<string, Record<string, number>>; // cityId -> assetId -> changePct
   
-  buyAsset: (assetId: string, quantity?: number) => void;
-  sellAsset: (assetId: string, quantity?: number) => void;
-  tickPrices: (earthDeltas: Record<string, number>) => void;
+  buyAsset: (cityId: string, assetId: string, humidity: number, quantity?: number) => Promise<boolean>;
+  sellAsset: (cityId: string, assetId: string, humidity: number, quantity?: number) => Promise<boolean>;
+  tickPrices: (cityId: string, earthDeltas: Record<string, number>) => void;
   resetPortfolio: () => void;
 };
 
 const INITIAL_CASH = 1000000;
 
-const initialPrices: Record<string, number> = {};
-const initialChangePct: Record<string, number> = {};
-assetProfiles.forEach((asset) => {
-  initialPrices[asset.id] = asset.basePrice;
-  initialChangePct[asset.id] = 0;
+const initialHoldings: Record<string, Record<string, number>> = {};
+const initialPrices: Record<string, Record<string, number>> = {};
+const initialChangePct: Record<string, Record<string, number>> = {};
+
+cities.forEach(city => {
+  initialHoldings[city.id] = {};
+  initialPrices[city.id] = {};
+  initialChangePct[city.id] = {};
+  
+  assetProfiles.forEach((asset) => {
+    initialHoldings[city.id][asset.id] = 0;
+    initialPrices[city.id][asset.id] = asset.basePrice;
+    initialChangePct[city.id][asset.id] = 0;
+  });
 });
 
 export const useTradingStore = create<TradingState>()(
-  (set) => ({
+  (set, get) => ({
     cash: INITIAL_CASH,
-    holdings: {},
-    prices: { ...initialPrices },
-    changePct: { ...initialChangePct },
+    holdings: JSON.parse(JSON.stringify(initialHoldings)),
+    prices: JSON.parse(JSON.stringify(initialPrices)),
+    changePct: JSON.parse(JSON.stringify(initialChangePct)),
 
-      buyAsset: (assetId, quantity = 1) =>
-        set((state) => {
-          const price = state.prices[assetId];
-          const cost = price * quantity;
-          if (state.cash >= cost) {
-            // Market impact: driving the price UP by ~0.5% per unit bought
-            const priceImpact = 1 + (0.005 * quantity);
-            return {
-              cash: state.cash - cost,
-              holdings: {
-                ...state.holdings,
-                [assetId]: (state.holdings[assetId] || 0) + quantity
-              },
-              prices: {
-                ...state.prices,
-                [assetId]: state.prices[assetId] * priceImpact
-              }
-            };
+    buyAsset: async (cityId, assetId, humidity, quantity = 1) => {
+      // Humidity checks
+      if (humidity < 30 && Math.random() < 0.20) {
+        // 20% chance to fail due to low humidity
+        return false;
+      }
+      if (humidity > 80) {
+        // 3 second delay
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+
+      const state = get();
+      const price = state.prices[cityId]?.[assetId];
+      if (!price) return false;
+      
+      const cost = price * quantity;
+      if (state.cash >= cost) {
+        const priceImpact = 1 + (0.005 * quantity);
+        set((s) => ({
+          cash: s.cash - cost,
+          holdings: {
+            ...s.holdings,
+            [cityId]: {
+              ...s.holdings[cityId],
+              [assetId]: (s.holdings[cityId]?.[assetId] || 0) + quantity
+            }
+          },
+          prices: {
+            ...s.prices,
+            [cityId]: {
+              ...s.prices[cityId],
+              [assetId]: s.prices[cityId][assetId] * priceImpact
+            }
           }
-          return state;
-        }),
+        }));
+        return true;
+      }
+      return false;
+    },
 
-      sellAsset: (assetId, quantity = 1) =>
-        set((state) => {
-          const currentHoldings = state.holdings[assetId] || 0;
-          if (currentHoldings >= quantity) {
-            const price = state.prices[assetId];
-            const revenue = price * quantity;
-            // Market impact: driving the price DOWN by ~0.5% per unit sold
-            const priceImpact = 1 - (0.005 * quantity);
-            return {
-              cash: state.cash + revenue,
-              holdings: {
-                ...state.holdings,
-                [assetId]: currentHoldings - quantity
-              },
-              prices: {
-                ...state.prices,
-                [assetId]: state.prices[assetId] * Math.max(0.01, priceImpact) // Prevent negative prices
-              }
-            };
+    sellAsset: async (cityId, assetId, humidity, quantity = 1) => {
+      if (humidity < 30 && Math.random() < 0.20) {
+        return false;
+      }
+      if (humidity > 80) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+
+      const state = get();
+      const currentHoldings = state.holdings[cityId]?.[assetId] || 0;
+      if (currentHoldings >= quantity) {
+        const price = state.prices[cityId]?.[assetId];
+        if (!price) return false;
+
+        const revenue = price * quantity;
+        const priceImpact = 1 - (0.005 * quantity);
+        
+        set((s) => ({
+          cash: s.cash + revenue,
+          holdings: {
+            ...s.holdings,
+            [cityId]: {
+              ...s.holdings[cityId],
+              [assetId]: currentHoldings - quantity
+            }
+          },
+          prices: {
+            ...s.prices,
+            [cityId]: {
+              ...s.prices[cityId],
+              [assetId]: Math.max(0.01, s.prices[cityId][assetId] * priceImpact)
+            }
           }
-          return state;
-        }),
+        }));
+        return true;
+      }
+      return false;
+    },
 
-      tickPrices: (earthDeltas) =>
-        set((state) => {
-          const newPrices = { ...state.prices };
-          const newChangePct = { ...state.changePct };
+    tickPrices: (cityId, earthDeltas) =>
+      set((state) => {
+        const newCityPrices = { ...state.prices[cityId] };
+        const newCityChangePct = { ...state.changePct[cityId] };
+        
+        Object.keys(newCityPrices).forEach((assetId) => {
+          const delta = earthDeltas[assetId] || 0;
+          const baseMultiplier = 1 + (delta * 0.001); 
+          const volatility = 1 + (Math.random() - 0.5) * 0.01; 
           
-          Object.keys(newPrices).forEach((assetId) => {
-            const delta = earthDeltas[assetId] || 0;
-            // The price moves based on the Earth Delta (e.g. Delta of +3 means upward pressure)
-            // Plus some random noise/volatility (-0.5% to +0.5%)
-            const baseMultiplier = 1 + (delta * 0.001); // 1 Earth Delta = 0.1% move per tick
-            const volatility = 1 + (Math.random() - 0.5) * 0.01; 
-            
-            const oldPrice = newPrices[assetId];
-            const newPrice = Math.max(0.01, oldPrice * baseMultiplier * volatility);
-            newPrices[assetId] = newPrice;
-            newChangePct[assetId] = Number((((newPrice - oldPrice) / oldPrice) * 100).toFixed(2));
-          });
+          const oldPrice = newCityPrices[assetId];
+          const newPrice = Math.max(0.01, oldPrice * baseMultiplier * volatility);
+          newCityPrices[assetId] = newPrice;
+          newCityChangePct[assetId] = Number((((newPrice - oldPrice) / oldPrice) * 100).toFixed(2));
+        });
 
-          return { prices: newPrices, changePct: newChangePct };
-        }),
+        return { 
+          prices: { ...state.prices, [cityId]: newCityPrices },
+          changePct: { ...state.changePct, [cityId]: newCityChangePct }
+        };
+      }),
 
-      resetPortfolio: () => set({ cash: INITIAL_CASH, holdings: {}, prices: { ...initialPrices }, changePct: { ...initialChangePct } })
+    resetPortfolio: () => set({ 
+      cash: INITIAL_CASH, 
+      holdings: JSON.parse(JSON.stringify(initialHoldings)), 
+      prices: JSON.parse(JSON.stringify(initialPrices)), 
+      changePct: JSON.parse(JSON.stringify(initialChangePct)) 
     })
+  })
 );

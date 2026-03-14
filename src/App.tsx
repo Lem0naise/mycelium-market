@@ -7,7 +7,7 @@ import { MarketPanel } from "./components/MarketPanel";
 import { cities, cityIndex, assetProfiles } from "../shared/data";
 import { useAppStore } from "./store/appStore";
 import { useTradingStore } from "./store/tradingStore";
-import { computeOracle } from "../shared/oracle";
+import { computeOracle, getConditionZones, checkBoundaryCrossings } from "../shared/oracle";
 import { AnimatePresence } from "framer-motion";
 import {
   type GlobeLoadStage,
@@ -17,7 +17,7 @@ import {
 
 const GlobeScene = lazy(() => import("./components/GlobeScene"));
 
-const ORACLE_ENABLED = false;
+const ORACLE_ENABLED = true;
 
 function GlobalLoadingScreen({ stage }: { stage: GlobeLoadStage }) {
   const stageMeta = globeLoadStageMeta[stage];
@@ -71,6 +71,7 @@ function GlobalLoadingScreen({ stage }: { stage: GlobeLoadStage }) {
 
 function App() {
   const [isOracleSpeaking, setIsOracleSpeaking] = useState(false);
+  const [oracleFlash, setOracleFlash] = useState(false);
   const [isGlobeMounted, setIsGlobeMounted] = useState(false);
   const [isAppInteractive, setIsAppInteractive] = useState(false);
   const [loadStage, setLoadStage] = useState<GlobeLoadStage>("shell");
@@ -87,10 +88,62 @@ function App() {
     pushOracleSpeech
   } = useAppStore();
 
-  const { prices, tickPrices } = useTradingStore();
+  const { prices, tickPrices, holdings } = useTradingStore();
 
   const latestSpeechRef = useRef<string | null>(null);
   const speakMutation = useMutation({ mutationFn: speakOracle });
+  const audioContextRef = useRef<AudioContext | null>(null);
+  // Tracks which threshold zones were active per city on the previous tick.
+  // undefined = not yet initialised (first observation — no alert fired).
+  const prevZonesByCityRef = useRef<Record<string, Set<string>>>({});
+  const oracleFlashTimeoutRef = useRef<number | null>(null);
+
+  // Unlock AudioContext on user interaction — must happen before first audio play
+  const unlockAudioContext = () => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+    }
+    if (audioContextRef.current.state === "suspended") {
+      audioContextRef.current.resume().catch(console.error);
+    }
+  };
+
+  // Play a base64 data: URL through the pre-unlocked AudioContext
+  const playBase64Audio = async (dataUrl: string) => {
+    try {
+      const ctx = audioContextRef.current;
+      if (!ctx) {
+        // Fallback — will likely be blocked by autoplay policy but worth trying
+        const audio = new Audio(dataUrl);
+        audio.onplay = () => setIsOracleSpeaking(true);
+        audio.onended = () => setIsOracleSpeaking(false);
+        await audio.play();
+        return;
+      }
+
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
+
+      const base64 = dataUrl.split(",")[1];
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
+      const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.onended = () => setIsOracleSpeaking(false);
+      setIsOracleSpeaking(true);
+      source.start();
+    } catch (e) {
+      console.error("Audio playback error", e);
+      setIsOracleSpeaking(false);
+    }
+  };
 
   const marketsQuery = useQuery({
     queryKey: ["markets"],
@@ -124,10 +177,14 @@ function App() {
   const baseTickers = marketsQuery.data?.tickers ?? [];
 
   // Map our custom local storage prices over the base tickers
-  const tickers = baseTickers.map(t => ({
-    ...t,
-    price: prices[t.assetId] ?? t.price
-  }));
+  const tickers = baseTickers.map(t => {
+    const { prices, changePct } = useTradingStore.getState();
+    return {
+      ...t,
+      price: prices[selectedCityId]?.[t.assetId] ?? t.price,
+      changePct: changePct[selectedCityId]?.[t.assetId] ?? t.changePct
+    };
+  });
 
   const advanceLoadStage = (nextStage: GlobeLoadStage) => {
     setLoadStage((currentStage) => {
@@ -178,8 +235,8 @@ function App() {
 
     const { primary, oracleText } = previewQuery.data;
 
-    if (primary.severity === "calm" || primary.severity === "watch") return;
-    if (latestSpeechRef.current === oracleText || speakMutation.isPending) return;
+    if (primary.severity !== "critical") return;
+    if (latestSpeechRef.current === oracleText || speakMutation.isPending || isOracleSpeaking) return;
 
     latestSpeechRef.current = oracleText;
     speakMutation.mutate(
@@ -187,47 +244,92 @@ function App() {
       {
         onSuccess: async (speech) => {
           pushOracleSpeech(speech);
-          if (!speech.audioUrl) return;
-
-          try {
-            const audio = new Audio(speech.audioUrl);
-
-            // Sync UI visuals with ElevenLabs Audio
-            audio.onplay = () => setIsOracleSpeaking(true);
-            audio.onended = () => setIsOracleSpeaking(false);
-
-            await audio.play();
-          } catch (e) {
-            console.error("Autoplay blocked or audio error", e);
-            setIsOracleSpeaking(false);
+          if (!speech.audioUrl) {
+            console.warn("Oracle: no audioUrl returned — check ELEVENLABS_API_KEY / ELEVENLABS_VOICE_ID");
+            return;
           }
+          await playBase64Audio(speech.audioUrl);
         }
       }
     );
-  }, [audioEnabled, previewQuery.data, pushOracleSpeech, speakMutation]);
+  }, [audioEnabled, previewQuery.data, pushOracleSpeech, speakMutation, isOracleSpeaking]);
+
+  // Multi-city oracle scanning — fires alerts only for cities where the user
+  // has stock holdings AND is NOT currently visiting that city
+  useEffect(() => {
+    if (!ORACLE_ENABLED || !audioEnabled) return;
+    if (!signals.length) return;
+
+    for (const signal of signals) {
+      // Skip the city the user is currently in
+      if (signal.cityId === selectedCityId) continue;
+
+      // Skip cities where the user holds no positions
+      const cityHoldings = holdings[signal.cityId] ?? {};
+      const hasHoldings = Object.values(cityHoldings).some(qty => qty > 0);
+      if (!hasHoldings) continue;
+
+      // Get current zones and compare with previous to detect crossings
+      const currZones = getConditionZones(signal);
+      const prevZones = prevZonesByCityRef.current[signal.cityId];
+
+      // First observation — initialise zones without firing an alert
+      if (prevZones === undefined) {
+        prevZonesByCityRef.current[signal.cityId] = currZones;
+        continue;
+      }
+
+      const cityName = cityIndex[signal.cityId]?.name ?? signal.cityId;
+      const result = checkBoundaryCrossings(prevZones, currZones, signal, cityName);
+
+      // Always update stored zones before checking result
+      prevZonesByCityRef.current[signal.cityId] = currZones;
+
+      if (!result) continue;
+
+      // Trigger green flash
+      if (oracleFlashTimeoutRef.current !== null) clearTimeout(oracleFlashTimeoutRef.current);
+      setOracleFlash(true);
+      oracleFlashTimeoutRef.current = window.setTimeout(() => setOracleFlash(false), 1500);
+
+      // Speak — only when no other oracle speech is queued or playing
+      if (!speakMutation.isPending && !isOracleSpeaking) {
+        speakMutation.mutate(
+          { text: result.speech, severity: "critical" },
+          {
+            onSuccess: async (speech) => {
+              pushOracleSpeech(speech);
+              if (speech.audioUrl) await playBase64Audio(speech.audioUrl);
+            }
+          }
+        );
+      }
+
+      break; // Queue one alert at a time; remainder will catch up next tick
+    }
+  }, [signals, selectedCityId, holdings, audioEnabled, isOracleSpeaking, speakMutation.isPending]);
 
   // Background price tick effect
   useEffect(() => {
     if (!signals.length) return;
 
     const interval = setInterval(() => {
-      const currentCitySignal = signals.find(s => s.cityId === selectedCityId) ?? signals[0];
-      if (!currentCitySignal) return;
-
-      const deltas: Record<string, number> = {};
-      baseTickers.forEach(t => {
-        const assetProfile = assetProfiles.find(a => a.id === t.assetId);
-        if (assetProfile) {
-          const comp = computeOracle(assetProfile, currentCitySignal, t.price);
-          deltas[t.assetId] = comp.earthDelta;
-        }
+      // Tick for all cities
+      signals.forEach(citySignal => {
+        const deltas: Record<string, number> = {};
+        baseTickers.forEach(t => {
+          const assetProfile = assetProfiles.find(a => a.id === t.assetId);
+          if (assetProfile) {
+            const comp = computeOracle(assetProfile, citySignal, t.price);
+            deltas[t.assetId] = comp.earthDelta;
+          }
+        });
+        tickPrices(citySignal.cityId, deltas);
       });
-
-      tickPrices(deltas);
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [signals, selectedCityId, baseTickers, tickPrices]);
+  }, [signals, baseTickers, tickPrices]);
 
   const sideMotionProps = isAppInteractive
     ? { initial: { opacity: 0, x: -24 }, animate: { opacity: 1, x: 0 }, transition: { duration: 0.5 } }
@@ -256,6 +358,9 @@ function App() {
           />
         )}
       </AnimatePresence>
+
+      {/* Green flash when a new oracle alert fires */}
+      {oracleFlash && <div className="oracle-flash-overlay" aria-hidden="true" />}
 
       <header className="app-header">
         <div>
@@ -302,6 +407,7 @@ function App() {
                     onInteractive={() => {
                       advanceLoadStage("interactive");
                       setIsAppInteractive(true);
+                      unlockAudioContext();
                     }}
                   />
                 </Suspense>

@@ -206,76 +206,149 @@ function severityRank(severity: Severity) {
   return severityOrder.indexOf(severity);
 }
 
-export function buildOracleText(
-  asset: AssetProfile,
-  cityName: string,
-  primary: OracleComputation,
-  compareCityName?: string,
-  compare?: OracleComputation | null
-) {
-  const comparison = compare && compareCityName
-    ? ` Compared to ${compareCityName}, ${cityName} is ${primary.cityAdvantage >= 0 ? "stronger" : "weaker"}.`
-    : "";
+/**
+ * Returns the set of active threshold zones for a signal.
+ * Each zone is a stable string key — the same key appears while the city stays
+ * inside that zone and disappears the moment it exits.
+ *
+ * Zones: "hum-high" | "hum-low" | "temp-high" | "temp-low" | "wind-high" | "rain-high"
+ */
+export function getConditionZones(signal: EnvironmentalSignal): Set<string> {
+  const zones = new Set<string>();
+  if (signal.humidity > 80)    zones.add("hum-high");
+  if (signal.humidity < 30)    zones.add("hum-low");
+  if (signal.temperature > 40) zones.add("temp-high");
+  if (signal.temperature < -5) zones.add("temp-low");
+  if (signal.wind > 35)        zones.add("wind-high");
+  if (signal.rain > 15)        zones.add("rain-high");
+  return zones;
+}
 
-  return `The environmental conditions in ${cityName} are currently causing ${asset.label} to shift by ${primary.earthDelta > 0 ? "+" : ""}${primary.earthDelta}%. Primary factors: ${primary.rationaleTokens.join(", ")}.${comparison}`;
+/**
+ * Edge-detector: compares prevZones → currZones for one city and returns alert
+ * text only for thresholds that were just CROSSED (entered OR exited).
+ *
+ * Returns null when nothing changed — i.e. a city already at hum 94 moving to
+ * hum 93 produces no result because "hum-high" was active before and is still active.
+ *
+ * Call once per signal update. The caller is responsible for persisting prevZones
+ * between calls (e.g. in a React ref).
+ */
+export function checkBoundaryCrossings(
+  prevZones: Set<string>,
+  currZones: Set<string>,
+  signal: EnvironmentalSignal,
+  cityName: string
+): { display: string; speech: string } | null {
+  const entered: string[] = [];
+  const exited: string[] = [];
+  for (const z of currZones) if (!prevZones.has(z)) entered.push(z);
+  for (const z of prevZones) if (!currZones.has(z)) exited.push(z);
+
+  if (entered.length === 0 && exited.length === 0) return null;
+
+  // Per-zone label factories — called at crossing time so values reflect actual signal
+  const enterLabels: Record<string, [string, string]> = {
+    "hum-high":  [`hum. ${Math.round(signal.humidity)}% ↑`,  `humidity rising to ${Math.round(signal.humidity)} percent`],
+    "hum-low":   [`hum. ${Math.round(signal.humidity)}% ↓`,  `humidity dropping to ${Math.round(signal.humidity)} percent`],
+    "temp-high": [`temp ${Math.round(signal.temperature)}° ↑`, `temperature at ${Math.round(signal.temperature)} degrees`],
+    "temp-low":  [`temp ${Math.round(signal.temperature)}° ↓`, `temperature dropping to ${Math.round(signal.temperature)} degrees`],
+    "wind-high": [`wind ${Math.round(signal.wind)}kn ↑`,     `wind at ${Math.round(signal.wind)} knots`],
+    "rain-high": [`rain ${Math.round(signal.rain)}mm ↑`,     `rainfall at ${Math.round(signal.rain)} millimetres`],
+  };
+  const exitLabels: Record<string, [string, string]> = {
+    "hum-high":  ["hum. clearing",   "humidity normalising"],
+    "hum-low":   ["hum. recovering", "humidity recovering"],
+    "temp-high": ["temp easing",     "temperature easing"],
+    "temp-low":  ["temp rising",     "temperature rising"],
+    "wind-high": ["wind settling",   "wind settling"],
+    "rain-high": ["rain easing",     "rainfall easing"],
+  };
+
+  const displayParts: string[] = [];
+  const speechParts: string[] = [];
+  for (const z of entered) {
+    const [d, s] = enterLabels[z] ?? [z, z];
+    displayParts.push(d);
+    speechParts.push(s);
+  }
+  for (const z of exited) {
+    const [d, s] = exitLabels[z] ?? [z, z];
+    displayParts.push(d);
+    speechParts.push(s);
+  }
+
+  return {
+    display: `${cityName}: ${displayParts.join(", ")}`,
+    speech:  `Alert — ${cityName}: ${speechParts.join(", ")}.`
+  };
+}
+
+// Used internally by buildOracleText / createScenarioPreview only.
+function checkCriticalConditions(
+  signal: EnvironmentalSignal,
+  cityName: string
+): { display: string; speech: string } | null {
+  const zones = getConditionZones(signal);
+  if (zones.size === 0) return null;
+  const displayParts: string[] = [];
+  const speechParts: string[] = [];
+  if (zones.has("hum-high") || zones.has("hum-low")) {
+    displayParts.push(`hum. ${Math.round(signal.humidity)}%`);
+    speechParts.push(`humidity ${Math.round(signal.humidity)} percent`);
+  }
+  if (zones.has("temp-high") || zones.has("temp-low")) {
+    displayParts.push(`temp ${Math.round(signal.temperature)}°`);
+    speechParts.push(`temperature ${Math.round(signal.temperature)} degrees`);
+  }
+  if (zones.has("wind-high")) {
+    displayParts.push(`wind ${Math.round(signal.wind)}kn`);
+    speechParts.push(`wind ${Math.round(signal.wind)} knots`);
+  }
+  if (zones.has("rain-high")) {
+    displayParts.push(`rain ${Math.round(signal.rain)}mm`);
+    speechParts.push(`rainfall ${Math.round(signal.rain)} millimetres`);
+  }
+  return {
+    display: `${cityName}: ${displayParts.join(", ")} — volatility`,
+    speech:  `Alert — ${cityName}: ${speechParts.join(", ")}. Market volatility expected.`
+  };
+}
+
+function isSignalCritical(signal: EnvironmentalSignal): boolean {
+  return (
+    signal.humidity > 80 ||
+    signal.humidity < 30 ||
+    signal.temperature > 40 ||
+    signal.temperature < -5 ||
+    signal.wind > 35 ||
+    signal.rain > 15
+  );
+}
+
+export function buildOracleText(signal: EnvironmentalSignal, cityName: string) {
+  const result = checkCriticalConditions(signal, cityName);
+  return result ? result.display : "Conditions stable.";
 }
 
 export function buildFeed(
   request: ScenarioPreviewRequest,
-  rankings: ReturnType<typeof rankCities>,
-  primary: OracleComputation,
-  compare: OracleComputation | null,
-  oracleText: string
+  oracleText: string,
+  isCritical: boolean
 ): EventFeedItem[] {
-  const selectedCity = cityIndex[request.cityId] ?? cityIndex[defaultCityId];
-  const topCity = cityIndex[rankings[0]?.cityId] ?? selectedCity;
-  const feed: EventFeedItem[] = [
+  if (!isCritical) return [];
+
+  return [
     {
-      id: `${request.assetId}-${request.cityId}-oracle`,
-      title: "Oracle interruption",
+      id: `${request.assetId}-${request.cityId}-oracle-${Date.now()}`,
+      title: "Planetary Condition Alert",
       body: oracleText,
       cityId: request.cityId,
-      severity: primary.severity,
+      severity: "critical",
       kind: "oracle",
-      timestamp: new Date().toISOString()
-    },
-    {
-      id: `${request.assetId}-${rankings[0]?.cityId}-market`,
-      title: `${topCity.name} now leads ${request.assetId}`,
-      body: `${topCity.name} is generating the strongest travel score at ${rankings[0]?.travelScore ?? primary.travelScore}.`,
-      cityId: topCity.id,
-      severity: rankings[0]?.severity ?? primary.severity,
-      kind: "market",
       timestamp: new Date().toISOString()
     }
   ];
-
-  if (request.patch) {
-    feed.unshift({
-      id: `${request.assetId}-${request.patch.targetCityId}-scenario`,
-      title: "Scenario patch applied",
-      body: `${selectedCity.name} was forced into a new weather state to test how price reacts under pressure.`,
-      cityId: request.patch.targetCityId,
-      severity: primary.severity,
-      kind: "scenario",
-      timestamp: new Date().toISOString()
-    });
-  }
-
-  if (compare) {
-    const compareCity = cityIndex[compare.cityId];
-    feed.push({
-      id: `${primary.cityId}-${compare.cityId}-compare`,
-      title: "City arbitrage spread",
-      body: `${selectedCity.name} is ${primary.cityAdvantage >= 0 ? "outperforming" : "underperforming"} ${compareCity?.name ?? compare.cityId} by ${Math.abs(primary.cityAdvantage)} Earth Delta.`,
-      cityId: primary.cityId,
-      severity: severityRank(primary.severity) >= severityRank(compare.severity) ? primary.severity : compare.severity,
-      kind: "environment",
-      timestamp: new Date().toISOString()
-    });
-  }
-
-  return feed;
 }
 
 export function createScenarioPreview(
@@ -296,19 +369,23 @@ export function createScenarioPreview(
   const compare = compareSignal ? computeOracle(asset, compareSignal, baselineValue, primarySignal) : null;
   const rankings = rankCities(asset.id, signals, tickers, request.patch);
   const oracleText = buildOracleText(
-    asset,
-    cityIndex[primary.cityId]?.name ?? primary.cityId,
-    primary,
-    compare ? cityIndex[compare.cityId]?.name ?? compare.cityId : undefined,
-    compare
+    primarySignal,
+    cityIndex[primary.cityId]?.name ?? primary.cityId
   );
+  
+  const isCritical = isSignalCritical(primarySignal);
+  if (isCritical) {
+    primary.severity = "critical";
+  } else {
+    primary.severity = "calm";
+  }
 
   return {
     primary,
     compare,
     rankings,
     signals: patchedSignals,
-    feed: buildFeed(request, rankings, primary, compare, oracleText),
+    feed: buildFeed(request, oracleText, isCritical),
     oracleText,
     sourceMode: primarySignal.sourceMode
   };
@@ -348,12 +425,17 @@ export function createFallbackTickers() {
 }
 
 export function createFallbackSignals() {
+  const time = Date.now() / 60000;
   return cities.map((city, index) => ({
     cityId: city.id,
     region: city.region,
     ...city.baselines,
-    humidity: clamp(city.baselines.humidity + Math.sin(index + 2) * 3, 0, 100),
-    rain: clamp(city.baselines.rain + Math.cos(index * 1.3) * 1.4, 0, 20),
+    humidity: clamp(city.baselines.humidity + Math.sin(time + index * 2.1) * 45, 0, 100),
+    rain: clamp(city.baselines.rain + Math.cos(time + index * 1.3) * 10, 0, 20),
+    temperature: clamp(city.baselines.temperature + Math.sin(time * 0.5 + index) * 20, -10, 45),
+    wind: clamp(city.baselines.wind + Math.cos(time * 0.8 + index) * 25, 0, 45),
+    airQuality: clamp(city.baselines.airQuality + Math.sin(time * 1.2 + index) * 60, 0, 160),
+    soilMoisture: clamp(city.baselines.soilMoisture + Math.cos(time * 0.3 + index) * 30, 0, 100),
     sourceMode: "synthetic" as const
   }));
 }

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { assetIndex, cityIndex } from "../../shared/data";
 import { useTradingStore } from "../store/tradingStore";
 import type {
@@ -53,8 +54,32 @@ export function MarketPanel({
   const primaryTicker = tickers.find((ticker) => ticker.assetId === selectedAssetId);
   const primaryCity = cityIndex[selectedCityId];
 
-  const currentHoldings = holdings[selectedAssetId] || 0;
+  const currentHoldings = holdings[selectedCityId]?.[selectedAssetId] || 0;
   const currentPrice = primaryTicker?.price ?? asset.basePrice;
+  const currentHumidity = preview?.signals.find(s => s.cityId === selectedCityId)?.humidity ?? 50;
+
+  const [isTrading, setIsTrading] = useState(false);
+  const [tradeError, setTradeError] = useState<string | null>(null);
+
+  const handleBuy = async () => {
+    setIsTrading(true);
+    setTradeError(null);
+    const success = await buyAsset(selectedCityId, selectedAssetId, currentHumidity, 1);
+    if (!success) {
+      setTradeError("Trade failed due to ecological interference.");
+    }
+    setIsTrading(false);
+  };
+
+  const handleSell = async () => {
+    setIsTrading(true);
+    setTradeError(null);
+    const success = await sellAsset(selectedCityId, selectedAssetId, currentHumidity, 1);
+    if (!success) {
+      setTradeError("Trade failed due to ecological interference.");
+    }
+    setIsTrading(false);
+  };
 
   return (
     <aside className="panel market-panel">
@@ -69,9 +94,11 @@ export function MarketPanel({
         </div>
         <div>
           <span>Total Value</span>
-          <strong>{formatCurrency(cash + Object.entries(holdings).reduce((sum, [id, qty]) => {
-            const currentPrice = prices[id] ?? assetIndex[id].basePrice;
-            return sum + currentPrice * qty;
+          <strong>{formatCurrency(cash + Object.entries(holdings).reduce((sum, [cityId, cityHoldings]) => {
+            return sum + Object.entries(cityHoldings).reduce((citySum, [id, qty]) => {
+              const currentPrice = prices[cityId]?.[id] ?? assetIndex[id].basePrice;
+              return citySum + currentPrice * qty;
+            }, 0);
           }, 0))}</strong>
         </div>
       </div>
@@ -89,7 +116,7 @@ export function MarketPanel({
               type="button"
               onClick={() => onSelectAsset?.(ticker.assetId)}
             >
-              <span>{profile ? profile.id : ticker.assetId}</span>
+              <span className='textLeft'>{profile ? profile.id : ticker.assetId}</span>
               <strong>{formatCurrency(ticker.price)}</strong>
               <small className={ticker.changePct >= 0 ? "up" : "down"}>
                 {ticker.changePct >= 0 ? "+" : ""}
@@ -112,22 +139,39 @@ export function MarketPanel({
           </div>
           <button
             className="action-btn buy-btn"
-            onClick={() => buyAsset(selectedAssetId, 1)}
-            disabled={cash < currentPrice}
-            style={{ padding: '8px 16px', background: 'var(--accent)', color: 'white', border: 'none', borderRadius: '4px', cursor: cash >= currentPrice ? 'pointer' : 'not-allowed', opacity: cash >= currentPrice ? 1 : 0.5, fontWeight: 'bold' }}
+            onClick={handleBuy}
+            disabled={cash < currentPrice || isTrading}
+            style={{ padding: '8px 16px', background: 'var(--accent)', color: 'white', border: 'none', borderRadius: '4px', cursor: (cash >= currentPrice && !isTrading) ? 'pointer' : 'not-allowed', opacity: (cash >= currentPrice && !isTrading) ? 1 : 0.5, fontWeight: 'bold' }}
           >
-            BUY 1
+            {isTrading ? "..." : "BUY 1"}
           </button>
           <button
             className="action-btn sell-btn"
-            onClick={() => sellAsset(selectedAssetId, 1)}
-            disabled={currentHoldings <= 0}
-            style={{ padding: '8px 16px', background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '4px', cursor: currentHoldings > 0 ? 'pointer' : 'not-allowed', opacity: currentHoldings > 0 ? 1 : 0.5, fontWeight: 'bold' }}
+            onClick={handleSell}
+            disabled={currentHoldings <= 0 || isTrading}
+            style={{ padding: '8px 16px', background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '4px', cursor: (currentHoldings > 0 && !isTrading) ? 'pointer' : 'not-allowed', opacity: (currentHoldings > 0 && !isTrading) ? 1 : 0.5, fontWeight: 'bold' }}
           >
-            SELL 1
+            {isTrading ? "..." : "SELL 1"}
           </button>
         </div>
+        {tradeError && <p style={{ color: '#ff4d4d', fontSize: '0.85rem', marginBottom: '16px' }}>{tradeError}</p>}
         <div className="ecological-factors">
+          <span className="eyebrow" style={{ display: 'block', marginBottom: '8px', marginTop: '16px' }}>Current City Conditions</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px', background: 'var(--panel-bg)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            {preview && preview.signals.find(s => s.cityId === selectedCityId) && Object.entries({
+              humidity: preview.signals.find(s => s.cityId === selectedCityId)!.humidity,
+              rain: preview.signals.find(s => s.cityId === selectedCityId)!.rain,
+              temperature: preview.signals.find(s => s.cityId === selectedCityId)!.temperature,
+              wind: preview.signals.find(s => s.cityId === selectedCityId)!.wind,
+              airQuality: preview.signals.find(s => s.cityId === selectedCityId)!.airQuality,
+            }).map(([key, val]) => (
+              <div key={key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
+                <span style={{ textTransform: 'capitalize' }}>{key}</span>
+                <strong>{val.toFixed(1)}</strong>
+              </div>
+            ))}
+          </div>
+
           <span className="eyebrow" style={{ display: 'block', marginBottom: '8px', marginTop: '16px' }}>Ecological Sensitivities</span>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
             Positive values mean the asset price increases when the environmental factor increases. Negative values suppress the price.
@@ -154,10 +198,7 @@ export function MarketPanel({
                   {preview.primary.earthDelta}
                 </strong>
               </div>
-              <div>
-                <span>Repriced Value</span>
-                <strong>{formatCurrency(preview.primary.repricedValue)}</strong>
-              </div>
+
             </div>
           </>
         ) : (
