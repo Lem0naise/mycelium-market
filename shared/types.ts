@@ -189,12 +189,7 @@ export type TradeFailureReason =
   | "insufficient-cash"
   | "no-holdings"
   | "ecological-interference"
-  | "mycelium-too-dry"
-  | "mycelium-waterlogged"
-  | "mycelium-too-acidic"
-  | "mycelium-too-alkaline"
-  | "mycelium-too-arid"
-  | "mycelium-oversaturated";
+  | "mycelium-network-collapse";
 
 export type TradeResult =
   | {

@@ -13,6 +13,7 @@ export type TradingState = {
   holdings: Record<string, Record<string, number>>;
   prices: Record<string, Record<string, number>>;
   changePct: Record<string, Record<string, number>>;
+  priceHistory: Record<string, Record<string, number[]>>;
   signalHistory: Record<string, Partial<Record<SignalKey, number[]>>>;
   buyAsset: (
     cityId: string,
@@ -36,71 +37,45 @@ const INITIAL_CASH = 100000;
 const initialHoldings: Record<string, Record<string, number>> = {};
 const initialPrices: Record<string, Record<string, number>> = {};
 const initialChangePct: Record<string, Record<string, number>> = {};
+const initialPriceHistory: Record<string, Record<string, number[]>> = {};
 
 cities.forEach((city) => {
   initialHoldings[city.id] = {};
   initialPrices[city.id] = {};
   initialChangePct[city.id] = {};
+  initialPriceHistory[city.id] = {};
 
   assetProfiles.forEach((asset) => {
     initialHoldings[city.id][asset.id] = 0;
     initialPrices[city.id][asset.id] = asset.basePrice;
     initialChangePct[city.id][asset.id] = 0;
+    initialPriceHistory[city.id][asset.id] = [asset.basePrice];
   });
 });
 
 function getMyceliumFailure(
   mycelium: MyceliumSignal
 ): { reason: TradeFailureReason; message: string } | null {
-  if (mycelium.soilMoisture < 20) {
-    return {
-      reason: "mycelium-too-dry",
-      message: `Soil moisture ${mycelium.soilMoisture.toFixed(0)}% is too dry for the mycelium network.`
-    };
+  const soilMoistureOk = mycelium.soilMoisture >= 20 && mycelium.soilMoisture <= 85;
+  const soilPhOk = mycelium.soilPh >= 5 && mycelium.soilPh <= 8;
+  const humidityOk = mycelium.humidity >= 25 && mycelium.humidity <= 88;
+
+  // Only block trading if ALL THREE signals are outside their healthy ranges
+  if (soilMoistureOk || soilPhOk || humidityOk) {
+    return null;
   }
 
-  if (mycelium.soilMoisture > 85) {
-    return {
-      reason: "mycelium-waterlogged",
-      message: `Soil moisture ${mycelium.soilMoisture.toFixed(0)}% has waterlogged the mycelium network.`
-    };
-  }
-
-  if (mycelium.soilPh < 5) {
-    return {
-      reason: "mycelium-too-acidic",
-      message: `Soil pH ${mycelium.soilPh.toFixed(1)} is too acidic for the mycelium network.`
-    };
-  }
-
-  if (mycelium.soilPh > 8) {
-    return {
-      reason: "mycelium-too-alkaline",
-      message: `Soil pH ${mycelium.soilPh.toFixed(1)} is too alkaline for the mycelium network.`
-    };
-  }
-
-  if (mycelium.humidity < 25) {
-    return {
-      reason: "mycelium-too-arid",
-      message: `Humidity ${mycelium.humidity.toFixed(0)}% is too low for the mycelium network.`
-    };
-  }
-
-  if (mycelium.humidity > 88) {
-    return {
-      reason: "mycelium-oversaturated",
-      message: `Humidity ${mycelium.humidity.toFixed(0)}% is oversaturating the mycelium network.`
-    };
-  }
-
-  return null;
+  return {
+    reason: "mycelium-network-collapse",
+    message: `Mycelium network has collapsed: soil moisture ${mycelium.soilMoisture.toFixed(0)}%, pH ${mycelium.soilPh.toFixed(1)}, humidity ${mycelium.humidity.toFixed(0)}% are all outside healthy ranges.`
+  };
 }
 
 export const useTradingStore = create<TradingState>()((set, get) => ({
   cash: INITIAL_CASH,
   holdings: JSON.parse(JSON.stringify(initialHoldings)),
   prices: JSON.parse(JSON.stringify(initialPrices)),
+  priceHistory: JSON.parse(JSON.stringify(initialPriceHistory)),
   changePct: JSON.parse(JSON.stringify(initialChangePct)),
   signalHistory: {},
 
@@ -220,24 +195,31 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
     set((state) => {
       const newCityPrices = { ...state.prices[cityId] };
       const newCityChangePct = { ...state.changePct[cityId] };
+      const newCityPriceHistory = { ...state.priceHistory[cityId] };
 
       Object.keys(newCityPrices).forEach((assetId) => {
         const delta = earthDeltas[assetId] || 0;
         const oldPrice = newCityPrices[assetId];
         const basePrice = assetIndex[assetId]?.basePrice ?? oldPrice;
 
-        // Log-scale movement: shift in log-space so all assets move by the same
-        // percentage regardless of their current absolute price level.
-        const logShift = delta * 0.005;
+        // New, highly volatile code
+        // 1. Environmental Impact: Increased 5x so weather changes hit the price much harder
+        const logShift = delta * 0.01;
 
-        // Mild mean reversion: pull log(price) back toward log(basePrice).
-        // Strength of 0.02 means a price 10× above base feels ~4.6% pull per tick.
-        const meanRevPull = -0.02 * (Math.log(oldPrice) - Math.log(basePrice));
+        // 2. Mean Reversion: Weakened by 5x. The "rubber band" pulling it back to basePrice 
+        // is much looser now, allowing the stock to go on massive bull or bear runs.
+        const meanRevPull = -0.005 * (Math.log(oldPrice) - Math.log(basePrice));
 
-        const logNoise = (Math.random() - 0.5) * 0.001;
+        // 3. Random Noise: Increased 5x. Creates a wilder ±1.5% random swing per tick, 
+        // ensuring the chart looks highly active and volatile.
+        const logNoise = (Math.random() - 0.5) * 0.03;
 
         const newPrice = Math.max(0.01, Math.exp(Math.log(oldPrice) + logShift + meanRevPull + logNoise));
         newCityPrices[assetId] = newPrice;
+
+        const WINDOW = 40;
+        const prevHistory = newCityPriceHistory[assetId] || [basePrice];
+        newCityPriceHistory[assetId] = [...prevHistory, newPrice].slice(-WINDOW);
 
         // Raw single-tick change — no rolling average, no lag.
         const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;
@@ -246,6 +228,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
 
       return {
         prices: { ...state.prices, [cityId]: newCityPrices },
+        priceHistory: { ...state.priceHistory, [cityId]: newCityPriceHistory },
         changePct: { ...state.changePct, [cityId]: newCityChangePct }
       };
     }),
@@ -255,6 +238,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       cash: INITIAL_CASH,
       holdings: JSON.parse(JSON.stringify(initialHoldings)),
       prices: JSON.parse(JSON.stringify(initialPrices)),
+      priceHistory: JSON.parse(JSON.stringify(initialPriceHistory)),
       changePct: JSON.parse(JSON.stringify(initialChangePct)),
       signalHistory: {}
     }),

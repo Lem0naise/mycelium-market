@@ -7,10 +7,11 @@ const SIGNAL_META: Partial<Record<SignalKey, { label: string; unit: string }>> =
 };
 
 export function myceliumStatus(soilMoisture: number, soilPh: number, humidity: number) {
-  const soilMoistureOk = soilMoisture >= 20 && soilMoisture <= 85;
-  const soilPhOk = soilPh >= 5 && soilPh <= 8;
-  const humidityOk = humidity >= 25 && humidity <= 88;
-  return { soilMoistureOk, soilPhOk, humidityOk, allOk: soilMoistureOk && soilPhOk && humidityOk };
+  let soilMoistureOk = soilMoisture >= 20 && soilMoisture <= 85;
+  let soilPhOk = soilPh >= 5 && soilPh <= 8;
+  let humidityOk = humidity >= 25 && humidity <= 88;
+  // Trade is only blocked when ALL THREE signals are outside their healthy ranges
+  return { soilMoistureOk, soilPhOk, humidityOk, allOk: soilMoistureOk || soilPhOk || humidityOk };
 }
 
 type Props = {

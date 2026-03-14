@@ -246,7 +246,7 @@ export const assetProfiles: AssetProfile[] = [
       soilPh: 0
     },
     triggerRules: [
-      { kind: "surge", signal: "airQuality", threshold: 70, effect: 12 }
+      { kind: "surge", signal: "airQuality", threshold: 70, effect: 5 }
     ],
   },
   {
@@ -268,7 +268,7 @@ export const assetProfiles: AssetProfile[] = [
       soilPh: 0
     },
     triggerRules: [
-      { kind: "surge", signal: "temperature", threshold: 30, effect: 8 }
+      { kind: "surge", signal: "temperature", threshold: 30, effect: 3 }
     ],
   },
   {
@@ -290,7 +290,7 @@ export const assetProfiles: AssetProfile[] = [
       soilPh: 0
     },
     triggerRules: [
-      { kind: "surge", signal: "wind", threshold: 25, effect: 8 }
+      { kind: "surge", signal: "wind", threshold: 25, effect: 3 }
     ],
   },
   {
@@ -312,7 +312,7 @@ export const assetProfiles: AssetProfile[] = [
       soilPh: 0
     },
     triggerRules: [
-      { kind: "surge", signal: "rain", threshold: 10, effect: 6 }
+      { kind: "surge", signal: "rain", threshold: 10, effect: 2 }
     ],
   },
   {
@@ -327,14 +327,14 @@ export const assetProfiles: AssetProfile[] = [
     ecologicalWeights: {
       humidity: 0,
       rain: 0,
-      temperature: 1.0,
+      temperature: -1.0,
       wind: 0,
       airQuality: 0,
       soilMoisture: 0,
       soilPh: 0
     },
     triggerRules: [
-      { kind: "drop", signal: "temperature", threshold: 5, effect: -8 }
+      { kind: "drop", signal: "temperature", threshold: 5, effect: -3 }
     ],
   },
   {
@@ -351,12 +351,12 @@ export const assetProfiles: AssetProfile[] = [
       rain: 0,
       temperature: 0,
       wind: 0,
-      airQuality: 0.8,
+      airQuality: -1,
       soilMoisture: 0,
       soilPh: 0
     },
     triggerRules: [
-      { kind: "surge", signal: "airQuality", threshold: 50, effect: 4 }
+      { kind: "surge", signal: "airQuality", threshold: 50, effect: 2 }
     ],
   }
 ];
