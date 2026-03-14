@@ -48,6 +48,10 @@ button {
   overflow: hidden;
 }
 
+.app-shell.is-loading {
+  height: 100vh;
+}
+
 .starscape {
   position: absolute;
   inset: 0;
@@ -58,6 +62,133 @@ button {
   background-size: 210px 210px, 310px 310px, 260px 260px;
   opacity: 0.45;
   pointer-events: none;
+}
+
+.global-loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(107, 224, 212, 0.14), transparent 34%),
+    linear-gradient(180deg, rgba(4, 6, 12, 0.94), rgba(5, 8, 14, 0.98));
+  pointer-events: all;
+}
+
+.global-loading-panel {
+  width: min(38rem, 100%);
+  display: grid;
+  gap: 1rem;
+  padding: 1.55rem 1.6rem;
+  border-radius: 30px;
+  border: 1px solid rgba(148, 170, 170, 0.18);
+  background:
+    radial-gradient(circle at top, rgba(127, 242, 208, 0.12), transparent 42%),
+    rgba(8, 11, 17, 0.92);
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(18px);
+}
+
+.global-loading-kicker {
+  font-family: "IBM Plex Mono", monospace;
+  color: #7ff2d0;
+  font-size: 0.76rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.global-loading-panel h2 {
+  margin: 0;
+  font-size: clamp(2rem, 3.5vw, 3.1rem);
+  line-height: 0.96;
+  letter-spacing: -0.04em;
+}
+
+.global-loading-panel p {
+  margin: 0;
+  max-width: 54ch;
+  color: rgba(216, 224, 231, 0.78);
+  line-height: 1.55;
+}
+
+.global-loading-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  color: #eef3f7;
+}
+
+.global-loading-progress-meta strong {
+  font-size: 1rem;
+}
+
+.global-loading-progress-meta span {
+  font-family: "IBM Plex Mono", monospace;
+  color: #7ff2d0;
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+}
+
+.global-loading-progress {
+  position: relative;
+  height: 0.72rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
+.global-loading-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, rgba(127, 242, 208, 0.9), rgba(196, 255, 111, 0.86)),
+    rgba(127, 242, 208, 0.8);
+  box-shadow:
+    0 0 30px rgba(127, 242, 208, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  transition: width 220ms ease;
+}
+
+.global-loading-steps {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.global-loading-step {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.72rem 0.75rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(153, 169, 178, 0.88);
+}
+
+.global-loading-step.is-complete {
+  border-color: rgba(127, 242, 208, 0.26);
+  background:
+    linear-gradient(180deg, rgba(127, 242, 208, 0.1), rgba(255, 255, 255, 0.02)),
+    rgba(255, 255, 255, 0.03);
+  color: #eef3f7;
+}
+
+.global-loading-step span {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.global-loading-step small {
+  font-size: 0.82rem;
 }
 
 .app-header,
@@ -300,53 +431,6 @@ button {
   background:
     radial-gradient(circle at 50% 20%, rgba(50, 83, 84, 0.16), transparent 40%),
     rgba(5, 7, 13, 0.92);
-}
-
-.globe-loading {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  min-height: 70vh;
-  z-index: 2;
-  pointer-events: none;
-}
-
-.globe-loading-card {
-  display: grid;
-  gap: 0.55rem;
-  width: min(24rem, calc(100% - 2.5rem));
-  padding: 1.2rem 1.3rem;
-  border-radius: 24px;
-  border: 1px solid rgba(150, 170, 184, 0.2);
-  background:
-    radial-gradient(circle at top, rgba(127, 242, 208, 0.14), transparent 48%),
-    linear-gradient(180deg, rgba(7, 11, 17, 0.96), rgba(5, 7, 13, 0.88));
-  box-shadow:
-    0 26px 60px rgba(0, 0, 0, 0.32),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
-}
-
-.globe-loading-card span {
-  font-family: "IBM Plex Mono", monospace;
-  color: #7ff2d0;
-  font-size: 0.74rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.globe-loading-card strong {
-  color: #eef3f7;
-  font-size: 1.12rem;
-  line-height: 1.2;
-}
-
-.globe-loading-card p {
-  margin: 0;
-  color: rgba(216, 224, 231, 0.72);
-  font-size: 0.94rem;
-  line-height: 1.5;
 }
 
 .globe-shell canvas {
@@ -746,6 +830,18 @@ input[type="range"]:focus {
 @media (max-width: 900px) {
   .app-shell {
     padding: 1rem;
+  }
+
+  .global-loading-screen {
+    padding: 1rem;
+  }
+
+  .global-loading-panel {
+    padding: 1.2rem;
+  }
+
+  .global-loading-steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .app-header {

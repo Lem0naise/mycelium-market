@@ -1,13 +1,21 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, OrbitControls } from "@react-three/drei";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import * as THREE from "three";
 import ThreeGlobe from "three-globe";
 import { feature } from "topojson-client";
-import countriesTopology from "world-atlas/countries-50m.json";
+import countriesTopology from "world-atlas/countries-110m.json";
 import { assetProfiles, cities, cityIndex } from "../../shared/data";
 import type { EnvironmentalSignal, RankedCity } from "../../shared/types";
+import {
+  getGlobeCanvasDpr,
+  scheduleGlobeDetailStages,
+  shouldEnableAutoRotate,
+  shouldRenderFullLabels,
+  shouldRenderSignalLayers,
+  type GlobeRenderStage
+} from "./globeBoot";
 
 type GlobeSceneProps = {
   selectedCityId: string;
@@ -15,10 +23,9 @@ type GlobeSceneProps = {
   selectedAssetId: string;
   signals: EnvironmentalSignal[];
   rankings: RankedCity[];
-  onReady?: () => void;
+  onStageChange?: (stage: GlobeRenderStage) => void;
+  onInteractive?: () => void;
 };
-
-type GlobeDetailStage = "base" | "full";
 
 type MapLabel = {
   id: string;
@@ -79,9 +86,14 @@ const globeTopology = countriesTopology as Record<string, unknown> & {
     countries: unknown;
   };
 };
+let cachedCountryPolygons: GlobePolygonDatum[] | null = null;
 
-function buildCountryPolygons() {
-  return (
+function getCountryPolygons() {
+  if (cachedCountryPolygons) {
+    return cachedCountryPolygons;
+  }
+
+  cachedCountryPolygons = (
     feature(globeTopology as never, globeTopology.objects.countries as never) as unknown as {
       features: Array<{ geometry: GlobePolygonDatum["geometry"] | null }>;
     }
@@ -90,6 +102,8 @@ function buildCountryPolygons() {
     .map<GlobePolygonDatum>((entry) => ({
       geometry: entry.geometry
     }));
+
+  return cachedCountryPolygons;
 }
 
 function toRgba(hex: string, alpha: number) {
@@ -190,17 +204,14 @@ function CityNameLabels({
   detailStage
 }: Pick<GlobeSceneProps, "selectedCityId" | "compareCityId"> & {
   globe: ThreeGlobe;
-  detailStage: GlobeDetailStage;
+  detailStage: GlobeRenderStage;
 }) {
-  const labels = useMemo(
-    () => {
-      const nextLabels = buildCityLabels(selectedCityId, compareCityId);
-      return detailStage === "full"
-        ? nextLabels
-        : nextLabels.filter((label) => label.isSelected || label.isCompare);
-    },
-    [compareCityId, detailStage, selectedCityId]
-  );
+  const labels = useMemo(() => {
+    const nextLabels = buildCityLabels(selectedCityId, compareCityId);
+    return shouldRenderFullLabels(detailStage)
+      ? nextLabels
+      : nextLabels.filter((label) => label.isSelected || label.isCompare);
+  }, [compareCityId, detailStage, selectedCityId]);
   const camera = useThree((state) => state.camera);
   const anchorRefs = useRef<Array<THREE.Group | null>>([]);
   const chipRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -208,13 +219,20 @@ function CityNameLabels({
   const normal = useMemo(() => new THREE.Vector3(), []);
   const toCamera = useMemo(() => new THREE.Vector3(), []);
   const globeScale = useMemo(() => baseRadius / globe.getGlobeRadius(), [globe]);
+  const lastVisibilityUpdateRef = useRef(0);
 
-  useFrame(() => {
-      anchorRefs.current.forEach((anchor, index) => {
-        const chip = chipRefs.current[index];
-        if (!anchor || !chip) {
-          return;
-        }
+  useFrame((state) => {
+    if (state.clock.elapsedTime - lastVisibilityUpdateRef.current < 1 / 20) {
+      return;
+    }
+
+    lastVisibilityUpdateRef.current = state.clock.elapsedTime;
+
+    anchorRefs.current.forEach((anchor, index) => {
+      const chip = chipRefs.current[index];
+      if (!anchor || !chip) {
+        return;
+      }
 
       anchor.getWorldPosition(worldPosition);
       normal.copy(worldPosition).normalize();
@@ -268,36 +286,9 @@ function CityNameLabels({
   );
 }
 
-function GlobeReadySignal({ onReady }: { onReady?: () => void }) {
-  const hasReportedReady = useRef(false);
-
-  useEffect(() => {
-    if (!onReady || hasReportedReady.current) {
-      return;
-    }
-
-    let firstFrameId = 0;
-    let secondFrameId = 0;
-
-    firstFrameId = window.requestAnimationFrame(() => {
-      secondFrameId = window.requestAnimationFrame(() => {
-        hasReportedReady.current = true;
-        onReady();
-      });
-    });
-
-    return () => {
-      window.cancelAnimationFrame(firstFrameId);
-      window.cancelAnimationFrame(secondFrameId);
-    };
-  }, [onReady]);
-
-  return null;
-}
-
-function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeDetailStage }) {
+function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeRenderStage }) {
   const camera = useThree((state) => state.camera);
-  const countryPolygons = useMemo(() => buildCountryPolygons(), []);
+  const countryPolygons = useMemo(() => getCountryPolygons(), []);
 
   const globe = useMemo(() => {
     const nextGlobe = new ThreeGlobe({
@@ -324,7 +315,7 @@ function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeDetailStage })
       .pointColor("color")
       .pointAltitude("altitude")
       .pointRadius("radius")
-      .pointResolution(7)
+      .pointResolution(6)
       .pointsMerge(false)
       .pointsTransitionDuration(300)
       .ringLat("lat")
@@ -354,34 +345,34 @@ function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeDetailStage })
     globeMaterial.shininess = 2;
 
     return nextGlobe;
-  }, []);
+  }, [countryPolygons]);
 
   const pointData = useMemo(
     () => buildPointData(props.signals, props.rankings, props.selectedCityId, props.compareCityId),
-    [props.signals, props.rankings, props.selectedCityId, props.compareCityId]
+    [props.compareCityId, props.rankings, props.selectedCityId, props.signals]
   );
   const ringData = useMemo(() => buildRingData(props.signals), [props.signals]);
   const arcData = useMemo(
     () => buildArcData(props.selectedCityId, props.selectedAssetId),
-    [props.selectedCityId, props.selectedAssetId]
+    [props.selectedAssetId, props.selectedCityId]
   );
   const basePointData = useMemo(
     () => pointData.filter((point) => point.id === props.selectedCityId || point.id === props.compareCityId),
-    [pointData, props.selectedCityId, props.compareCityId]
+    [pointData, props.compareCityId, props.selectedCityId]
   );
-  const isFullDetail = props.detailStage === "full";
+  const showSignalLayers = shouldRenderSignalLayers(props.detailStage);
 
   useEffect(() => {
-    globe.pointsData(isFullDetail ? pointData : basePointData);
-  }, [basePointData, globe, isFullDetail, pointData]);
+    globe.pointsData(showSignalLayers ? pointData : basePointData);
+  }, [basePointData, globe, pointData, showSignalLayers]);
 
   useEffect(() => {
-    globe.ringsData(isFullDetail ? ringData : []);
-  }, [globe, isFullDetail, ringData]);
+    globe.ringsData(showSignalLayers ? ringData : []);
+  }, [globe, ringData, showSignalLayers]);
 
   useEffect(() => {
-    globe.arcsData(isFullDetail ? arcData : []);
-  }, [arcData, globe, isFullDetail]);
+    globe.arcsData(showSignalLayers ? arcData : []);
+  }, [arcData, globe, showSignalLayers]);
 
   useFrame(() => {
     globe.setPointOfView(camera);
@@ -407,37 +398,34 @@ function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeDetailStage })
 }
 
 export function GlobeScene(props: GlobeSceneProps) {
-  const [detailStage, setDetailStage] = useState<GlobeDetailStage>("base");
+  const [detailStage, setDetailStage] = useState<GlobeRenderStage>("base");
+  const emitStageChange = useEffectEvent((stage: GlobeRenderStage) => {
+    props.onStageChange?.(stage);
+  });
+  const emitInteractive = useEffectEvent(() => {
+    props.onInteractive?.();
+  });
 
   useEffect(() => {
-    let timeoutId = 0;
-    let idleCallbackId: number | undefined;
-    const requestIdle = window.requestIdleCallback?.bind(window);
-
-    const enableFullDetail = () => {
-      setDetailStage("full");
-    };
-
-    if (requestIdle) {
-      idleCallbackId = requestIdle(enableFullDetail, { timeout: 1800 });
-    } else {
-      timeoutId = window.setTimeout(enableFullDetail, 900);
-    }
-
-    return () => {
-      if (idleCallbackId !== undefined && typeof window.cancelIdleCallback === "function") {
-        window.cancelIdleCallback(idleCallbackId);
-      }
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
-    };
+    return scheduleGlobeDetailStages({
+      requestIdleCallback: window.requestIdleCallback?.bind(window),
+      cancelIdleCallback: window.cancelIdleCallback?.bind(window),
+      requestAnimationFrame: window.requestAnimationFrame.bind(window),
+      cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+      setTimeout: window.setTimeout.bind(window),
+      clearTimeout: window.clearTimeout.bind(window),
+      onStage: (stage) => {
+        setDetailStage(stage);
+        emitStageChange(stage);
+      },
+      onInteractive: emitInteractive
+    });
   }, []);
 
   return (
     <div className="globe-shell">
       <Canvas
-        dpr={[1, 1.2]}
+        dpr={getGlobeCanvasDpr(detailStage)}
         gl={{ antialias: true, powerPreference: "high-performance", alpha: false }}
         camera={{ position: [0, 0, 6.3], fov: 34 }}
       >
@@ -448,8 +436,13 @@ export function GlobeScene(props: GlobeSceneProps) {
         <group rotation={[0, GLOBE_ROTATION_Y, 0]}>
           <GlobeObject {...props} detailStage={detailStage} />
         </group>
-        <GlobeReadySignal onReady={props.onReady} />
-        <OrbitControls enablePan={false} minDistance={4.4} maxDistance={8.2} autoRotate autoRotateSpeed={0.18} />
+        <OrbitControls
+          enablePan={false}
+          minDistance={4.4}
+          maxDistance={8.2}
+          autoRotate={shouldEnableAutoRotate(detailStage)}
+          autoRotateSpeed={0.18}
+        />
       </Canvas>
       <div className="globe-label">
         <span>Terra Arbitrage</span>

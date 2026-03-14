@@ -7,14 +7,32 @@ import type { MarketsResponse, ScenarioPreviewResponse, SignalsResponse } from "
 import { createFallbackSignals, createFallbackTickers, createScenarioPreview } from "../shared/oracle";
 
 vi.mock("../src/components/GlobeScene", () => ({
-  default: ({ onReady }: { onReady?: () => void }) => (
-    <div>
-      <div data-testid="globe-scene">globe</div>
-      <div data-testid="globe-detail-stage">base</div>
-      <button type="button" onClick={onReady}>
-        ready
+  default: ({
+    onStageChange,
+    onInteractive
+  }: {
+    onStageChange?: (stage: "base" | "signals" | "labels" | "interactive") => void;
+    onInteractive?: () => void;
+  }) => (
+    <div data-testid="globe-scene">
+      <button type="button" onClick={() => onStageChange?.("base")}>
+        stage-base
       </button>
-      <button type="button">full-detail</button>
+      <button type="button" onClick={() => onStageChange?.("signals")}>
+        stage-signals
+      </button>
+      <button type="button" onClick={() => onStageChange?.("labels")}>
+        stage-labels
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onStageChange?.("interactive");
+          onInteractive?.();
+        }}
+      >
+        stage-interactive
+      </button>
     </div>
   )
 }));
@@ -101,7 +119,7 @@ describe("App", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the planetary dashboard loop and lets the user switch assets", async () => {
+  it("keeps the global loader visible until the globe reports interactive readiness", async () => {
     const client = new QueryClient({
       defaultOptions: {
         queries: {
@@ -118,11 +136,38 @@ describe("App", () => {
     );
 
     expect(await screen.findByText("The planet is the trader.")).toBeInTheDocument();
-    expect(screen.getByText("Loading globe...")).toBeInTheDocument();
-    expect(screen.queryByTestId("globe-scene")).not.toBeInTheDocument();
+    expect(screen.getByText("Loading planetary engine")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
 
     expect(await screen.findByTestId("globe-scene")).toBeInTheDocument();
-    expect(screen.getByTestId("globe-detail-stage")).toHaveTextContent("base");
+    await waitFor(() => {
+      expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "30");
+    });
+
+    await user.click(screen.getByRole("button", { name: "stage-base" }));
+    await waitFor(() => {
+      expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "55");
+    });
+    expect(screen.getByText("Mapping country topology")).toBeInTheDocument();
+    expect(screen.getByText("Loading planetary engine")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "stage-signals" }));
+    await waitFor(() => {
+      expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "75");
+    });
+
+    await user.click(screen.getByRole("button", { name: "stage-labels" }));
+    await waitFor(() => {
+      expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "90");
+    });
+    expect(screen.getByText("Activating city labels")).toBeInTheDocument();
+    expect(screen.getByText("Loading planetary engine")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "stage-interactive" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Loading planetary engine")).not.toBeInTheDocument();
+    });
+
     await waitFor(() => expect(screen.getByText("Cocoa Futures")).toBeInTheDocument());
 
     const assetSelect = screen.getByLabelText("Asset");
@@ -131,12 +176,5 @@ describe("App", () => {
     await waitFor(() => {
       expect(assetSelect).toHaveValue("BTC");
     });
-
-    await user.click(screen.getByRole("button", { name: "ready" }));
-    await waitFor(() => {
-      expect(screen.queryByText("Loading globe...")).not.toBeInTheDocument();
-    });
-
-    expect(screen.getByRole("button", { name: "full-detail" })).toBeInTheDocument();
   });
 });
