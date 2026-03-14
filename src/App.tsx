@@ -904,7 +904,7 @@ function App() {
                       <span className="eyebrow">Portfolio</span>
                       {portfolioRollingPct !== null && (
                         <span style={{
-                          fontSize: "0.72rem",
+                          fontSize: "1rem",
                           fontWeight: "bold",
                           letterSpacing: "0.03em",
                           padding: "2px 7px",
@@ -920,7 +920,7 @@ function App() {
 
                     {/* Big total value display */}
                     <div style={{
-                      fontSize: "clamp(1.5rem, 2.8vw, 2.2rem)",
+                      fontSize: "clamp(1.5rem, 2.8vw, 4rem)",
                       fontWeight: "bold",
                       letterSpacing: "-0.03em",
                       lineHeight: 1,
@@ -960,10 +960,10 @@ function App() {
                               borderBottom: idx < portfolioItems.length - 1 ? "1px solid var(--border)" : "none",
                             }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                                <span style={{ fontWeight: "bold", fontSize: "0.9rem" }}>
+                                <span style={{ fontWeight: "bold", fontSize: "1.3rem" }}>
                                   {assetLabel} <span style={{ fontWeight: "normal", color: "var(--text-muted)" }}>×{item.qty}</span>
                                 </span>
-                                <strong style={{ fontSize: "0.95rem", color: "var(--accent)" }}>
+                                <strong style={{ fontSize: "1.3rem", color: "var(--accent)" }}>
                                   {formatGBPOverlay(positionValue)}
                                 </strong>
                               </div>

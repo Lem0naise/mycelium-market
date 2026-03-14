@@ -201,11 +201,11 @@ button {
 }
 
 .app-header {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin-bottom: 1rem;
-    width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  width: 100%;
 }
 
 .app-header h1 {
@@ -220,7 +220,7 @@ button {
   flex: 1;
   display: flex;
   align-items: center;
-  min-width: 0; 
+  min-width: 0;
 }
 
 .header-center {
@@ -236,12 +236,12 @@ button {
   align-items: center;
 }
 
-  .mycelium-spacer {
-    flex: 1;
-    display: flex;
-    justify-content: right;
-    padding: 0 1rem;
-  }
+.mycelium-spacer {
+  flex: 1;
+  display: flex;
+  justify-content: right;
+  padding: 0 1rem;
+}
 
 .header-stats {
   display: grid;
@@ -311,7 +311,7 @@ button {
 
 .globe-stage {
   position: relative;
-  height: 100%; 
+  height: 100%;
 }
 
 .globe-scene-slot {
@@ -525,7 +525,6 @@ button {
   top: 1rem;
   display: grid;
   gap: 0.8rem;
-  max-width: min(28vw, 320px);
 }
 
 .overlay-panel {
@@ -1307,13 +1306,16 @@ input[type="range"]:focus {
     justify-content: center;
     gap: 1.5rem;
   }
+
   .header-left {
     flex: 0 0 100%;
   }
+
   .header-right {
     flex: 0 0 100%;
     justify-content: space-between;
   }
+
   .mycelium-spacer {
     justify-content: flex-start;
     padding: 0;
@@ -1341,13 +1343,13 @@ input[type="range"]:focus {
     grid-template-columns: 1fr;
     gap: 1.5rem;
   }
-  
+
   .header-center {
     white-space: normal;
     flex-wrap: wrap;
     justify-content: flex-start;
   }
-  
+
   .header-right-content {
     flex-wrap: wrap;
     gap: 1rem;
