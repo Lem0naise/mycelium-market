@@ -239,7 +239,7 @@ button {
   .mycelium-spacer {
     flex: 1;
     display: flex;
-    justify-content: center;
+    justify-content: right;
     padding: 0 1rem;
   }
 
