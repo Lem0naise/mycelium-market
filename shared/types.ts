@@ -4,6 +4,11 @@ export type MarketType = "stock" | "commodity" | "crypto" | "prediction";
 
 export type Severity = "calm" | "watch" | "alert" | "critical";
 
+export type GeoPoint = {
+  lat: number;
+  lon: number;
+};
+
 export type SignalKey =
   | "humidity"
   | "rain"
@@ -78,6 +83,107 @@ export type OracleSpeech = {
   cooldownUntil: string;
 };
 
+export type StormSystem = {
+  id: string;
+  seed: number;
+  originLat: number;
+  originLon: number;
+  radiusDeg: number;
+  driftHeadingDeg: number;
+  driftSpeedDegPerSec: number;
+  latWaveAmplitude: number;
+  lonWaveAmplitude: number;
+  latWaveSpeed: number;
+  lonWaveSpeed: number;
+  phaseOffset: number;
+  hue: string;
+};
+
+export type StormTrailPoint = GeoPoint & {
+  timestampMs: number;
+  ageMs: number;
+};
+
+export type WindIndicator = {
+  id: string;
+  stormId: string;
+  fromLat: number;
+  fromLon: number;
+  toLat: number;
+  toLon: number;
+  etaSeconds: number;
+};
+
+export type StormSnapshot = {
+  stormId: string;
+  lat: number;
+  lon: number;
+  radiusDeg: number;
+  intensity: number;
+  hue: string;
+  trail: StormTrailPoint[];
+  windIndicators: WindIndicator[];
+};
+
+export type FlightPhase = "en-route" | "holding";
+
+export type FlightState = {
+  id: string;
+  phase: FlightPhase;
+  fromCityId: string;
+  toCityId: string;
+  startLat: number;
+  startLon: number;
+  endLat: number;
+  endLon: number;
+  distanceKm: number;
+  durationMs: number;
+  progress: number;
+  holdProgress: number | null;
+  holdingStartedAtMs: number | null;
+  remainingMs: number;
+  currentLat: number;
+  currentLon: number;
+  orbitAngleDeg: number;
+  path: GeoPoint[];
+  lastUpdatedAtMs: number;
+  isReturningHome: boolean;
+};
+
+export type MyceliumSignal = {
+  soilMoisture: number;
+  soilPh: number;
+  humidity: number;
+};
+
+export type TradeFailureReason =
+  | "not-in-city"
+  | "in-flight"
+  | "storm-blocked"
+  | "insufficient-cash"
+  | "no-holdings"
+  | "ecological-interference"
+  | "mycelium-too-dry"
+  | "mycelium-waterlogged"
+  | "mycelium-too-acidic"
+  | "mycelium-too-alkaline"
+  | "mycelium-too-arid"
+  | "mycelium-oversaturated";
+
+export type TradeResult =
+  | {
+      ok: true;
+      assetId: string;
+      cityId: string;
+      quantity: number;
+      executedPrice: number;
+    }
+  | {
+      ok: false;
+      reason: TradeFailureReason;
+      message?: string;
+    };
+
 /**
  * Discriminated union returned by POST /api/oracle/speak.
  * When the server lock is active it returns the `skipped` branch so the
@@ -133,6 +239,15 @@ export type RankedCity = {
   repricedValue: number;
   severity: Severity;
   signal: EnvironmentalSignal;
+};
+
+export type ScenarioSnapshot = {
+  primary: OracleComputation;
+  compare: OracleComputation | null;
+  rankings: RankedCity[];
+  signals: EnvironmentalSignal[];
+  oracleText: string;
+  sourceMode: SourceMode;
 };
 
 export type ScenarioPreviewResponse = {

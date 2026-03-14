@@ -15,11 +15,11 @@ export function myceliumStatus(soilMoisture: number, soilPh: number, humidity: n
 
 type Props = {
   signals: EnvironmentalSignal[];
-  selectedCityId: string;
+  cityId: string;
 };
 
-export function MyceliumWidget({ signals, selectedCityId }: Props) {
-  const citySignal = signals.find(s => s.cityId === selectedCityId);
+export function MyceliumWidget({ signals, cityId }: Props) {
+  const citySignal = signals.find((signal) => signal.cityId === cityId);
   const mycelium = {
     soilMoisture: citySignal?.soilMoisture ?? 45,
     soilPh: citySignal?.soilPh ?? 6.5,

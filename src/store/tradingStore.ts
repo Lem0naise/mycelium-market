@@ -1,28 +1,32 @@
 import { create } from "zustand";
 import { assetProfiles, cities } from "../../shared/data";
-import type { SignalKey } from "../../shared/types";
-
-// The three mycelium signals that can block trading when out of range.
-// Safe zones: soilMoisture 20–85, soilPh 5–8, humidity 25–88.
-export type MyceliumSignal = {
-  soilMoisture: number;
-  soilPh: number;
-  humidity: number;
-};
-
-export type TradeResult = { ok: true } | { ok: false; reason: string };
+import type {
+  MyceliumSignal,
+  SignalKey,
+  TradeFailureReason,
+  TradeResult
+} from "../../shared/types";
+import { useAppStore } from "./appStore";
 
 export type TradingState = {
   cash: number;
-  holdings: Record<string, Record<string, number>>; // cityId -> assetId -> quantity
-  prices: Record<string, Record<string, number>>; // cityId -> assetId -> price
-  changePct: Record<string, Record<string, number>>; // cityId -> assetId -> rolling 3-tick avg changePct
-  changePctHistory: Record<string, Record<string, number[]>>; // cityId -> assetId -> last 3 raw tick changePcts
-  // Rolling history of the last 5 signal readings per city/key (used for 5-week avg)
+  holdings: Record<string, Record<string, number>>;
+  prices: Record<string, Record<string, number>>;
+  changePct: Record<string, Record<string, number>>;
+  changePctHistory: Record<string, Record<string, number[]>>;
   signalHistory: Record<string, Partial<Record<SignalKey, number[]>>>;
-
-  buyAsset: (cityId: string, assetId: string, mycelium: MyceliumSignal, quantity?: number) => Promise<TradeResult>;
-  sellAsset: (cityId: string, assetId: string, mycelium: MyceliumSignal, quantity?: number) => Promise<TradeResult>;
+  buyAsset: (
+    cityId: string,
+    assetId: string,
+    mycelium: MyceliumSignal,
+    quantity?: number
+  ) => Promise<TradeResult>;
+  sellAsset: (
+    cityId: string,
+    assetId: string,
+    mycelium: MyceliumSignal,
+    quantity?: number
+  ) => Promise<TradeResult>;
   tickPrices: (cityId: string, earthDeltas: Record<string, number>) => void;
   recordSignals: (cityId: string, signals: Partial<Record<SignalKey, number>>) => void;
   resetPortfolio: () => void;
@@ -34,7 +38,7 @@ const initialHoldings: Record<string, Record<string, number>> = {};
 const initialPrices: Record<string, Record<string, number>> = {};
 const initialChangePct: Record<string, Record<string, number>> = {};
 
-cities.forEach(city => {
+cities.forEach((city) => {
   initialHoldings[city.id] = {};
   initialPrices[city.id] = {};
   initialChangePct[city.id] = {};
@@ -46,137 +50,222 @@ cities.forEach(city => {
   });
 });
 
-export const useTradingStore = create<TradingState>()(
-  (set, get) => ({
-    cash: INITIAL_CASH,
-    holdings: JSON.parse(JSON.stringify(initialHoldings)),
-    prices: JSON.parse(JSON.stringify(initialPrices)),
-    changePct: JSON.parse(JSON.stringify(initialChangePct)),
-    changePctHistory: {},
-    signalHistory: {},
+function getMyceliumFailure(
+  mycelium: MyceliumSignal
+): { reason: TradeFailureReason; message: string } | null {
+  if (mycelium.soilMoisture < 20) {
+    return {
+      reason: "mycelium-too-dry",
+      message: `Soil moisture ${mycelium.soilMoisture.toFixed(0)}% is too dry for the mycelium network.`
+    };
+  }
 
-    buyAsset: async (cityId, assetId, mycelium, quantity = 1) => {
-      // Mycelium network checks — hard block when conditions are out of safe range
-      if (mycelium.soilMoisture < 20)
-        return { ok: false, reason: `Soil moisture ${mycelium.soilMoisture.toFixed(0)}% — too dry for mycelium network` };
-      if (mycelium.soilMoisture > 85)
-        return { ok: false, reason: `Soil moisture ${mycelium.soilMoisture.toFixed(0)}% — network waterlogged` };
-      if (mycelium.soilPh < 5)
-        return { ok: false, reason: `Soil pH ${mycelium.soilPh.toFixed(1)} — too acidic, mycelium disrupted` };
-      if (mycelium.soilPh > 8)
-        return { ok: false, reason: `Soil pH ${mycelium.soilPh.toFixed(1)} — too alkaline, mycelium disrupted` };
-      if (mycelium.humidity < 25)
-        return { ok: false, reason: `Humidity ${mycelium.humidity.toFixed(0)}% — too dry, mycelium dormant` };
-      if (mycelium.humidity > 88)
-        return { ok: false, reason: `Humidity ${mycelium.humidity.toFixed(0)}% — oversaturated, mycelium disrupted` };
+  if (mycelium.soilMoisture > 85) {
+    return {
+      reason: "mycelium-waterlogged",
+      message: `Soil moisture ${mycelium.soilMoisture.toFixed(0)}% has waterlogged the mycelium network.`
+    };
+  }
 
-      const state = get();
-      const price = state.prices[cityId]?.[assetId];
-      if (!price) return { ok: false, reason: "Price unavailable" };
+  if (mycelium.soilPh < 5) {
+    return {
+      reason: "mycelium-too-acidic",
+      message: `Soil pH ${mycelium.soilPh.toFixed(1)} is too acidic for the mycelium network.`
+    };
+  }
 
-      const cost = price * quantity;
-      if (state.cash >= cost) {
-        const priceImpact = 1 + (0.005 * quantity);
-        set((s) => ({
-          cash: s.cash - cost,
-          holdings: {
-            ...s.holdings,
-            [cityId]: {
-              ...s.holdings[cityId],
-              [assetId]: (s.holdings[cityId]?.[assetId] || 0) + quantity
-            }
-          },
-          prices: {
-            ...s.prices,
-            [cityId]: {
-              ...s.prices[cityId],
-              [assetId]: s.prices[cityId][assetId] * priceImpact
-            }
-          }
-        }));
-        return { ok: true };
+  if (mycelium.soilPh > 8) {
+    return {
+      reason: "mycelium-too-alkaline",
+      message: `Soil pH ${mycelium.soilPh.toFixed(1)} is too alkaline for the mycelium network.`
+    };
+  }
+
+  if (mycelium.humidity < 25) {
+    return {
+      reason: "mycelium-too-arid",
+      message: `Humidity ${mycelium.humidity.toFixed(0)}% is too low for the mycelium network.`
+    };
+  }
+
+  if (mycelium.humidity > 88) {
+    return {
+      reason: "mycelium-oversaturated",
+      message: `Humidity ${mycelium.humidity.toFixed(0)}% is oversaturating the mycelium network.`
+    };
+  }
+
+  return null;
+}
+
+export const useTradingStore = create<TradingState>()((set, get) => ({
+  cash: INITIAL_CASH,
+  holdings: JSON.parse(JSON.stringify(initialHoldings)),
+  prices: JSON.parse(JSON.stringify(initialPrices)),
+  changePct: JSON.parse(JSON.stringify(initialChangePct)),
+  changePctHistory: {},
+  signalHistory: {},
+
+  buyAsset: async (cityId, assetId, mycelium, quantity = 1) => {
+    const { currentCityId, focusedCityId, flight } = useAppStore.getState();
+
+    if (flight) {
+      return { ok: false, reason: "in-flight" };
+    }
+
+    if (currentCityId !== cityId || focusedCityId !== currentCityId) {
+      return { ok: false, reason: "not-in-city" };
+    }
+
+    const myceliumFailure = getMyceliumFailure(mycelium);
+    if (myceliumFailure) {
+      return {
+        ok: false,
+        reason: myceliumFailure.reason,
+        message: myceliumFailure.message
+      };
+    }
+
+    const state = get();
+    const price = state.prices[cityId]?.[assetId];
+    if (!price) {
+      return {
+        ok: false,
+        reason: "ecological-interference",
+        message: "Price unavailable for this market."
+      };
+    }
+
+    const cost = price * quantity;
+    if (state.cash < cost) {
+      return { ok: false, reason: "insufficient-cash" };
+    }
+
+    const priceImpact = 1 + 0.005 * quantity;
+    set((currentState) => ({
+      cash: currentState.cash - cost,
+      holdings: {
+        ...currentState.holdings,
+        [cityId]: {
+          ...currentState.holdings[cityId],
+          [assetId]: (currentState.holdings[cityId]?.[assetId] || 0) + quantity
+        }
+      },
+      prices: {
+        ...currentState.prices,
+        [cityId]: {
+          ...currentState.prices[cityId],
+          [assetId]: currentState.prices[cityId][assetId] * priceImpact
+        }
       }
-      return { ok: false, reason: "Insufficient funds" };
-    },
+    }));
 
-    sellAsset: async (cityId, assetId, mycelium, quantity = 1) => {
-      // Mycelium network checks — hard block when conditions are out of safe range
-      if (mycelium.soilMoisture < 20)
-        return { ok: false, reason: `Soil moisture ${mycelium.soilMoisture.toFixed(0)}% — too dry for mycelium network` };
-      if (mycelium.soilMoisture > 85)
-        return { ok: false, reason: `Soil moisture ${mycelium.soilMoisture.toFixed(0)}% — network waterlogged` };
-      if (mycelium.soilPh < 5)
-        return { ok: false, reason: `Soil pH ${mycelium.soilPh.toFixed(1)} — too acidic, mycelium disrupted` };
-      if (mycelium.soilPh > 8)
-        return { ok: false, reason: `Soil pH ${mycelium.soilPh.toFixed(1)} — too alkaline, mycelium disrupted` };
-      if (mycelium.humidity < 25)
-        return { ok: false, reason: `Humidity ${mycelium.humidity.toFixed(0)}% — too dry, mycelium dormant` };
-      if (mycelium.humidity > 88)
-        return { ok: false, reason: `Humidity ${mycelium.humidity.toFixed(0)}% — oversaturated, mycelium disrupted` };
+    return {
+      ok: true,
+      assetId,
+      cityId,
+      quantity,
+      executedPrice: price
+    };
+  },
 
-      const state = get();
-      const currentHoldings = state.holdings[cityId]?.[assetId] || 0;
-      if (currentHoldings >= quantity) {
-        const price = state.prices[cityId]?.[assetId];
-        if (!price) return { ok: false, reason: "Price unavailable" };
+  sellAsset: async (cityId, assetId, mycelium, quantity = 1) => {
+    const { currentCityId, focusedCityId, flight } = useAppStore.getState();
 
-        const revenue = price * quantity;
-        const priceImpact = 1 - (0.005 * quantity);
+    if (flight) {
+      return { ok: false, reason: "in-flight" };
+    }
 
-        set((s) => ({
-          cash: s.cash + revenue,
-          holdings: {
-            ...s.holdings,
-            [cityId]: {
-              ...s.holdings[cityId],
-              [assetId]: currentHoldings - quantity
-            }
-          },
-          prices: {
-            ...s.prices,
-            [cityId]: {
-              ...s.prices[cityId],
-              [assetId]: Math.max(0.01, s.prices[cityId][assetId] * priceImpact)
-            }
-          }
-        }));
-        return { ok: true };
+    if (currentCityId !== cityId || focusedCityId !== currentCityId) {
+      return { ok: false, reason: "not-in-city" };
+    }
+
+    const myceliumFailure = getMyceliumFailure(mycelium);
+    if (myceliumFailure) {
+      return {
+        ok: false,
+        reason: myceliumFailure.reason,
+        message: myceliumFailure.message
+      };
+    }
+
+    const state = get();
+    const currentHoldings = state.holdings[cityId]?.[assetId] || 0;
+    if (currentHoldings < quantity) {
+      return { ok: false, reason: "no-holdings" };
+    }
+
+    const price = state.prices[cityId]?.[assetId];
+    if (!price) {
+      return {
+        ok: false,
+        reason: "ecological-interference",
+        message: "Price unavailable for this market."
+      };
+    }
+
+    const revenue = price * quantity;
+    const priceImpact = 1 - 0.005 * quantity;
+
+    set((currentState) => ({
+      cash: currentState.cash + revenue,
+      holdings: {
+        ...currentState.holdings,
+        [cityId]: {
+          ...currentState.holdings[cityId],
+          [assetId]: currentHoldings - quantity
+        }
+      },
+      prices: {
+        ...currentState.prices,
+        [cityId]: {
+          ...currentState.prices[cityId],
+          [assetId]: Math.max(0.01, currentState.prices[cityId][assetId] * priceImpact)
+        }
       }
-      return { ok: false, reason: "No holdings to sell" };
-    },
+    }));
 
-    tickPrices: (cityId, earthDeltas) =>
-      set((state) => {
-        const newCityPrices = { ...state.prices[cityId] };
-        const newCityChangePct = { ...state.changePct[cityId] };
-        const newCityChangePctHistory = { ...(state.changePctHistory[cityId] ?? {}) };
+    return {
+      ok: true,
+      assetId,
+      cityId,
+      quantity,
+      executedPrice: price
+    };
+  },
 
-        Object.keys(newCityPrices).forEach((assetId) => {
-          const delta = earthDeltas[assetId] || 0;
-          const baseMultiplier = 1 + (delta * 0.001);
-          const volatility = 1 + (Math.random() - 0.5) * 0.005; // ±0.25% random noise
+  tickPrices: (cityId, earthDeltas) =>
+    set((state) => {
+      const newCityPrices = { ...state.prices[cityId] };
+      const newCityChangePct = { ...state.changePct[cityId] };
+      const newCityChangePctHistory = { ...(state.changePctHistory[cityId] ?? {}) };
 
-          const oldPrice = newCityPrices[assetId];
-          const newPrice = Math.max(0.01, oldPrice * baseMultiplier * volatility);
-          newCityPrices[assetId] = newPrice;
+      Object.keys(newCityPrices).forEach((assetId) => {
+        const delta = earthDeltas[assetId] || 0;
+        const baseMultiplier = 1 + delta * 0.001;
+        const volatility = 1 + (Math.random() - 0.5) * 0.005;
 
-          // Rolling 3-tick average changePct (smooths out per-tick noise)
-          const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;
-          const prevHistory = newCityChangePctHistory[assetId] ?? [];
-          const newHistory = [...prevHistory, rawChangePct].slice(-3);
-          newCityChangePctHistory[assetId] = newHistory;
-          const rollingAvg = newHistory.reduce((s, v) => s + v, 0) / newHistory.length;
-          newCityChangePct[assetId] = Number(rollingAvg.toFixed(2));
-        });
+        const oldPrice = newCityPrices[assetId];
+        const newPrice = Math.max(0.01, oldPrice * baseMultiplier * volatility);
+        newCityPrices[assetId] = newPrice;
 
-        return {
-          prices: { ...state.prices, [cityId]: newCityPrices },
-          changePct: { ...state.changePct, [cityId]: newCityChangePct },
-          changePctHistory: { ...state.changePctHistory, [cityId]: newCityChangePctHistory }
-        };
-      }),
+        const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;
+        const prevHistory = newCityChangePctHistory[assetId] ?? [];
+        const newHistory = [...prevHistory, rawChangePct].slice(-3);
+        newCityChangePctHistory[assetId] = newHistory;
+        const rollingAvg = newHistory.reduce((sum, value) => sum + value, 0) / newHistory.length;
+        newCityChangePct[assetId] = Number(rollingAvg.toFixed(2));
+      });
 
-    resetPortfolio: () => set({
+      return {
+        prices: { ...state.prices, [cityId]: newCityPrices },
+        changePct: { ...state.changePct, [cityId]: newCityChangePct },
+        changePctHistory: { ...state.changePctHistory, [cityId]: newCityChangePctHistory }
+      };
+    }),
+
+  resetPortfolio: () =>
+    set({
       cash: INITIAL_CASH,
       holdings: JSON.parse(JSON.stringify(initialHoldings)),
       prices: JSON.parse(JSON.stringify(initialPrices)),
@@ -185,16 +274,26 @@ export const useTradingStore = create<TradingState>()(
       signalHistory: {}
     }),
 
-    recordSignals: (cityId, signals) => set((state) => {
+  recordSignals: (cityId, signals) =>
+    set((state) => {
       const WINDOW = 5;
       const cityHistory = { ...(state.signalHistory[cityId] ?? {}) };
+
       (Object.keys(signals) as SignalKey[]).forEach((key) => {
-        const val = signals[key];
-        if (val === undefined) return;
-        const prev = cityHistory[key] ?? [];
-        cityHistory[key] = [...prev, val].slice(-WINDOW);
+        const value = signals[key];
+        if (value === undefined) {
+          return;
+        }
+
+        const previous = cityHistory[key] ?? [];
+        cityHistory[key] = [...previous, value].slice(-WINDOW);
       });
-      return { signalHistory: { ...state.signalHistory, [cityId]: cityHistory } };
-    }),
-  })
-);
+
+      return {
+        signalHistory: {
+          ...state.signalHistory,
+          [cityId]: cityHistory
+        }
+      };
+    })
+}));
