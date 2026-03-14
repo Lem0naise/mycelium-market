@@ -196,7 +196,9 @@ export type TradeFailureReason =
   | "insufficient-cash"
   | "no-holdings"
   | "ecological-interference"
-  | "mycelium-network-collapse";
+  | "mycelium-network-collapse"
+  | "moisture-wilting-cap"
+  | "humidity-reroute";
 
 export type TradeResult =
   | {
@@ -210,6 +212,8 @@ export type TradeResult =
       ok: false;
       reason: TradeFailureReason;
       message?: string;
+      /** Populated on "humidity-reroute": the buy that was auto-executed instead */
+      redirectBuy?: { assetId: string; quantity: number; executedPrice: number };
     };
 
 /**

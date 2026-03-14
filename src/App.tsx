@@ -1,10 +1,10 @@
-import { Suspense, lazy, startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchMarkets, speakOracle } from "./api";
 import { FeedPanel } from "./components/FeedPanel";
 import { MarketPanel } from "./components/MarketPanel";
-import { MyceliumWidget } from "./components/MyceliumWidget";
+import { MyceliumWidget, EnvironmentalEffectsPanel } from "./components/MyceliumWidget";
 import { assetProfiles, cities, cityIndex } from "../shared/data";
 import {
   createInitialOracleWatchState,
@@ -170,7 +170,7 @@ function App() {
     pushOracleSpeech
   } = useAppStore();
 
-  const { cash, holdings, prices, changePct, tickPrices, recordSignals } = useTradingStore();
+  const { cash, holdings, prices, changePct, tickAllPrices, recordAllSignals } = useTradingStore();
 
   const speakMutation = useMutation({ mutationFn: speakOracle });
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -421,10 +421,8 @@ function App() {
       }
 
       const elapsedMs = now - simulationStartRef.current;
-      if (elapsedMs - lastCommittedMs >= 50) {
-        startTransition(() => {
-          setSimulationMs(elapsedMs);
-        });
+      if (elapsedMs - lastCommittedMs >= 33) {
+        setSimulationMs(elapsedMs);
         lastCommittedMs = elapsedMs;
       }
 
@@ -642,6 +640,10 @@ function App() {
       setLiveSignals(freshSignals);
 
       const effectiveSignals = applyStormEffectsToSignals(freshSignals, stormSnapshotsRef.current);
+
+      const priceUpdates: Array<{ cityId: string; earthDeltas: Record<string, number>; mycelium: { soilMoisture: number; soilPh: number; humidity: number } }> = [];
+      const signalUpdates: Array<{ cityId: string; signals: EnvironmentalSignal }> = [];
+
       effectiveSignals.forEach((citySignal) => {
         const deltas: Record<string, number> = {};
         const prevSignal = prevSignalsRef.current[citySignal.cityId];
@@ -652,9 +654,24 @@ function App() {
           });
         }
 
-        tickPrices(citySignal.cityId, deltas);
-        recordSignals(citySignal.cityId, citySignal);
+        priceUpdates.push({
+          cityId: citySignal.cityId,
+          earthDeltas: deltas,
+          mycelium: {
+            soilMoisture: citySignal.soilMoisture,
+            soilPh: citySignal.soilPh,
+            humidity: citySignal.humidity,
+          }
+        });
+
+        signalUpdates.push({
+          cityId: citySignal.cityId,
+          signals: citySignal
+        });
       });
+
+      tickAllPrices(priceUpdates);
+      recordAllSignals(signalUpdates);
 
       // Snapshot this tick's signals so the next tick can compute deltas
       prevSignalsRef.current = Object.fromEntries(
@@ -663,7 +680,7 @@ function App() {
     }, 1000);
 
     return () => window.clearInterval(intervalId);
-  }, [baseTickers, recordSignals, tickPrices]);
+  }, [baseTickers, recordAllSignals, tickAllPrices]);
 
   const DAYS_PER_WEEK = 7;
   const WEEKS_PER_YEAR = 52;
@@ -686,39 +703,39 @@ function App() {
 
   const sideMotionProps = isAppInteractive
     ? {
-        initial: { opacity: 0, x: -24 },
-        animate: { opacity: 1, x: 0 },
-        transition: { duration: 0.5 }
-      }
+      initial: { opacity: 0, x: -24 },
+      animate: { opacity: 1, x: 0 },
+      transition: { duration: 0.5 }
+    }
     : {
-        initial: false as const,
-        animate: { opacity: 1, x: 0 },
-        transition: { duration: 0 }
-      };
+      initial: false as const,
+      animate: { opacity: 1, x: 0 },
+      transition: { duration: 0 }
+    };
 
   const rightMotionProps = isAppInteractive
     ? {
-        initial: { opacity: 0, x: 24 },
-        animate: { opacity: 1, x: 0 },
-        transition: { duration: 0.5 }
-      }
+      initial: { opacity: 0, x: 24 },
+      animate: { opacity: 1, x: 0 },
+      transition: { duration: 0.5 }
+    }
     : {
-        initial: false as const,
-        animate: { opacity: 1, x: 0 },
-        transition: { duration: 0 }
-      };
+      initial: false as const,
+      animate: { opacity: 1, x: 0 },
+      transition: { duration: 0 }
+    };
 
   const globeMotionProps = isAppInteractive
     ? {
-        initial: { opacity: 0, scale: 0.96 },
-        animate: { opacity: 1, scale: 1 },
-        transition: { duration: 0.6 }
-      }
+      initial: { opacity: 0, scale: 0.96 },
+      animate: { opacity: 1, scale: 1 },
+      transition: { duration: 0.6 }
+    }
     : {
-        initial: false as const,
-        animate: { opacity: 1, scale: 1 },
-        transition: { duration: 0 }
-      };
+      initial: false as const,
+      animate: { opacity: 1, scale: 1 },
+      transition: { duration: 0 }
+    };
 
   return (
     <div className={isAppInteractive ? "app-shell is-interactive" : "app-shell is-loading"}>
@@ -816,29 +833,9 @@ function App() {
           </div>
         </div>
 
-        {/* 3. Right Section */}
-        <div className="header-right">
-          
-          {/* This spacer grabs all empty space between the Center Date and the Stats */}
-          <div className="mycelium-spacer">
-            <MyceliumWidget signals={signals} cityId={currentCityId} />
-          </div>
-
-          <div className="header-stats">
-            <div>
-              <span>Tracked cities</span>
-              <strong>{cities.length}</strong>
-            </div>
-            <div>
-              <span>Storms in play</span>
-              <strong>{stormSnapshots.length}</strong>
-            </div>
-            <div>
-              <span>Flight status</span>
-              <strong>{describeFlightStatus(flight)}</strong>
-            </div>
-          </div>
-
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }} className="mycelium-spacer">
+          <MyceliumWidget signals={signals} cityId={currentCityId} />
+          <EnvironmentalEffectsPanel signals={signals} cityId={currentCityId} />
         </div>
       </header>
 

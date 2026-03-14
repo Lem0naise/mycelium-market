@@ -11,7 +11,33 @@ import {
   initializeStormSystems,
   simulateStormField
 } from "../shared/simulation";
-import type { EnvironmentalSignal, StormSnapshot } from "../shared/types";
+import type { EnvironmentalSignal, StormSnapshot, StormSystem } from "../shared/types";
+
+function createTestStorm(overrides: Partial<StormSystem> = {}): StormSystem {
+  return {
+    id: "test-storm",
+    seed: 12_345,
+    originLat: cityIndex.abidjan.lat,
+    originLon: cityIndex.abidjan.lon,
+    radiusDeg: 15,
+    velocityLat: 0.08,
+    velocityLon: 0.04,
+    targetCityId: "abidjan",
+    targetAssignedAtMs: 0,
+    targetExpiresAtMs: 60_000,
+    lastHitCityId: null,
+    lastHitAtMs: null,
+    driftHeadingDeg: 28,
+    driftSpeedDegPerSec: 0.12,
+    latWaveAmplitude: 1.4,
+    lonWaveAmplitude: 1.6,
+    latWaveSpeed: 0.05,
+    lonWaveSpeed: 0.05,
+    phaseOffset: 0.3,
+    hue: "#9fe8ff",
+    ...overrides
+  };
+}
 
 describe("storm and flight simulation", () => {
   it("creates stable session storms that spawn evenly across hemispheres and move over time", () => {
@@ -122,34 +148,87 @@ describe("storm and flight simulation", () => {
     expect(abidjanAfterStorm.temperature).toBeLessThan(abidjanSignal.temperature);
   });
 
-  it("builds wind guides toward future storm positions", () => {
+  it("keeps storm snapshots free of directional wind indicators", () => {
     const snapshots = buildStormSnapshots(createStormSystems(77), 5_000);
 
     snapshots.forEach((storm) => {
-      expect(storm.windIndicators).toHaveLength(3);
-      storm.windIndicators.forEach((indicator) => {
-        expect(indicator.etaSeconds).toBeGreaterThan(0);
-        expect(
-          indicator.toLat !== indicator.fromLat || indicator.toLon !== indicator.fromLon
-        ).toBe(true);
-      });
+      expect(storm.windIndicators).toEqual([]);
     });
   });
 
-  it("assigns target cities, penalises clustering, and records recent hits", () => {
-    const systems = createStormSystems(101);
-    const field = simulateStormField(systems, 140_000);
-    const targetCities = field.states
-      .map((storm) => storm.targetCityId)
-      .filter((cityId): cityId is string => Boolean(cityId));
-    const uniqueTargets = new Set(targetCities);
+  it("clears the target and enters a fully random loiter after a city hit", () => {
+    const hitField = simulateStormField([createTestStorm()], 100).states[0];
+    const loiterField = simulateStormField([createTestStorm()], 10_000).states[0];
 
-    expect(targetCities).toHaveLength(6);
-    expect(uniqueTargets.size).toBeGreaterThanOrEqual(4);
-    expect(Object.keys(field.recentHits).length).toBeGreaterThan(0);
+    expect(hitField.lastHitCityId).toBe("abidjan");
+    expect(hitField.targetCityId).toBeNull();
+    expect(hitField.movementPhase).toBe("loitering");
+    expect(hitField.targetBiasStrength).toBe(0);
+    expect(loiterField.movementPhase).toBe("loitering");
+    expect(loiterField.targetCityId).toBeNull();
+    expect(loiterField.targetBiasStrength).toBe(0);
   });
 
-  it("leans storms into cities often enough to create repeat pressure over time", () => {
+  it("ramps the tiny city bias back in gradually after loitering", () => {
+    const storm = createTestStorm();
+    const reacquiredField = simulateStormField([storm], 25_100).states[0];
+    const midRampField = simulateStormField([storm], 30_000).states[0];
+    const fullRampField = simulateStormField([storm], 35_100).states[0];
+
+    expect(reacquiredField.movementPhase).toBe("nudged");
+    expect(reacquiredField.targetCityId).not.toBeNull();
+    expect(reacquiredField.targetBiasStrength).toBe(0);
+    expect(midRampField.targetBiasStrength).toBeGreaterThan(0);
+    expect(midRampField.targetBiasStrength).toBeLessThan(1);
+    expect(fullRampField.targetBiasStrength).toBe(1);
+  });
+
+  it("returns to loitering first when a target expires without a hit", () => {
+    const farStorm = createTestStorm({
+      originLat: cityIndex.reykjavik.lat,
+      originLon: cityIndex.reykjavik.lon,
+      targetCityId: "sydney",
+      targetExpiresAtMs: 5_000,
+      velocityLat: 0.02,
+      velocityLon: 0.01
+    });
+
+    const justExpired = simulateStormField([farStorm], 5_100).states[0];
+    const stillLoitering = simulateStormField([farStorm], 20_000).states[0];
+
+    expect(justExpired.movementPhase).toBe("loitering");
+    expect(justExpired.targetCityId).toBeNull();
+    expect(justExpired.targetBiasStrength).toBe(0);
+    expect(stillLoitering.movementPhase).toBe("loitering");
+    expect(stillLoitering.targetCityId).toBeNull();
+  });
+
+  it("preserves heading continuity across hit and expiry transitions", () => {
+    const hitStorm = createTestStorm();
+    const beforeHit = simulateStormField([hitStorm], 0).states[0];
+    const afterHit = simulateStormField([hitStorm], 100).states[0];
+    const hitDotProduct =
+      beforeHit.velocityLat * afterHit.velocityLat + beforeHit.velocityLon * afterHit.velocityLon;
+
+    const expiryStorm = createTestStorm({
+      originLat: cityIndex.reykjavik.lat,
+      originLon: cityIndex.reykjavik.lon,
+      targetCityId: "sydney",
+      targetExpiresAtMs: 5_000,
+      velocityLat: 0.02,
+      velocityLon: 0.01
+    });
+    const beforeExpiry = simulateStormField([expiryStorm], 4_900).states[0];
+    const afterExpiry = simulateStormField([expiryStorm], 5_100).states[0];
+    const expiryDotProduct =
+      beforeExpiry.velocityLat * afterExpiry.velocityLat +
+      beforeExpiry.velocityLon * afterExpiry.velocityLon;
+
+    expect(hitDotProduct).toBeGreaterThan(0);
+    expect(expiryDotProduct).toBeGreaterThan(0);
+  });
+
+  it("still reaches cities occasionally without chaining immediately between them", () => {
     const systems = createStormSystems(202);
     const blockedCities = new Set<string>();
 
@@ -168,7 +247,7 @@ describe("storm and flight simulation", () => {
       });
     }
 
-    expect(blockedCities.size).toBeGreaterThanOrEqual(5);
+    expect(blockedCities.size).toBeGreaterThanOrEqual(2);
   });
 
   it("scales flight times by distance and detects storm holds on the route", () => {

@@ -18,11 +18,12 @@ const STORM_REPULSION_BUFFER_DEG = 14;
 const STORM_PREDICTION_LOOKAHEAD_MS = 4_000;
 const STORM_TARGET_MIN_MS = 45_000;
 const STORM_TARGET_MAX_MS = 70_000;
-const STORM_TARGET_COOLDOWN_MS = 8_000;
+const STORM_LOITER_DURATION_MS = 25_000;
+const STORM_TARGET_RAMP_MS = 10_000;
 const STORM_RECENT_HIT_WINDOW_MS = 90_000;
 const STORM_TARGET_NEAR_HIT_FACTOR = 0.58;
 const STORM_MAX_SPEED_DEG_PER_SEC = 1.25;
-const STORM_TARGET_FORCE = 0.19;
+const STORM_TARGET_FORCE = 0.01;
 const STORM_REPULSION_FORCE = 0.72;
 const STORM_OPEN_WATER_FORCE = 0.18;
 const STORM_WANDER_FORCE = 0.07;
@@ -30,7 +31,6 @@ const STORM_DAMPING = 0.92;
 const HOLDING_PATTERN_RADIUS_DEG = 1.25;
 const TRAIL_SAMPLE_STEP_MS = 1_000;
 const TRAIL_DURATION_MS = 10_000;
-const FUTURE_GUIDE_OFFSETS_MS = [4_000, 8_000, 12_000] as const;
 const STORM_CORE_DELTAS = {
   humidity: -35,
   rain: 16,
@@ -41,6 +41,8 @@ const STORM_CORE_DELTAS = {
   soilPh: -2.0
 } as const;
 const STORM_HUES = ["#7fd9ff", "#98f5ff", "#8db9ff", "#aff4d8", "#7fc9ff", "#88f0ff"];
+
+type StormMovementPhase = "loitering" | "nudged";
 
 type StormRuntimeState = {
   stormId: string;
@@ -53,6 +55,10 @@ type StormRuntimeState = {
   targetExpiresAtMs: number;
   lastHitCityId: string | null;
   lastHitAtMs: number | null;
+  movementPhase: StormMovementPhase;
+  loiterUntilMs: number;
+  targetBiasStartedAtMs: number | null;
+  targetBiasStrength: number;
   congestionTicks: number;
 };
 
@@ -71,8 +77,8 @@ const stormFieldCache = new Map<string, StormFieldCache>();
 const STORM_CACHE_RETAIN_MS =
   STORM_RECENT_HIT_WINDOW_MS +
   STORM_TARGET_MAX_MS +
-  TRAIL_DURATION_MS +
-  FUTURE_GUIDE_OFFSETS_MS[FUTURE_GUIDE_OFFSETS_MS.length - 1];
+  STORM_LOITER_DURATION_MS +
+  TRAIL_DURATION_MS;
 
 const maxFlightDistanceKm = (() => {
   let longest = 1;
@@ -279,6 +285,10 @@ function createStormRuntimeState(storm: StormSystem): StormRuntimeState {
     targetExpiresAtMs: storm.targetExpiresAtMs,
     lastHitCityId: storm.lastHitCityId,
     lastHitAtMs: storm.lastHitAtMs,
+    movementPhase: storm.targetCityId ? "nudged" : "loitering",
+    loiterUntilMs: 0,
+    targetBiasStartedAtMs: storm.targetCityId ? storm.targetAssignedAtMs : null,
+    targetBiasStrength: storm.targetCityId ? 1 : 0,
     congestionTicks: 0
   };
 }
@@ -299,6 +309,11 @@ function createStormFieldKey(storms: StormSystem[]) {
       radiusDeg: round(storm.radiusDeg, 4),
       velocityLat: round(storm.velocityLat, 4),
       velocityLon: round(storm.velocityLon, 4),
+      targetCityId: storm.targetCityId,
+      targetAssignedAtMs: storm.targetAssignedAtMs,
+      targetExpiresAtMs: storm.targetExpiresAtMs,
+      lastHitCityId: storm.lastHitCityId,
+      lastHitAtMs: storm.lastHitAtMs,
       phaseOffset: round(storm.phaseOffset, 4)
     }))
   );
@@ -323,6 +338,16 @@ function createInitialStormFieldFrame(storms: StormSystem[]) {
     states,
     recentHits
   } satisfies StormFieldFrame;
+}
+
+function enterStormLoitering(state: StormRuntimeState, nowMs: number) {
+  state.targetCityId = null;
+  state.targetAssignedAtMs = nowMs;
+  state.targetExpiresAtMs = nowMs;
+  state.movementPhase = "loitering";
+  state.loiterUntilMs = nowMs + STORM_LOITER_DURATION_MS;
+  state.targetBiasStartedAtMs = null;
+  state.targetBiasStrength = 0;
 }
 
 function isStormLayoutStable(systems: StormSystem[]) {
@@ -486,27 +511,31 @@ function ensureStormTargets(
   recentHits: Record<string, number>
 ) {
   const targetedCounts = states.reduce<Record<string, number>>((counts, state) => {
-    if (state.targetCityId) {
+    if (state.targetCityId && state.movementPhase === "nudged") {
       counts[state.targetCityId] = (counts[state.targetCityId] ?? 0) + 1;
     }
     return counts;
   }, {});
 
   states.forEach((state, index) => {
-    const needsTarget =
-      !state.targetCityId ||
-      nowMs >= state.targetExpiresAtMs ||
-      (state.lastHitAtMs !== null && nowMs - state.lastHitAtMs <= STORM_TARGET_COOLDOWN_MS);
+    if (state.targetCityId && nowMs >= state.targetExpiresAtMs) {
+      if (state.targetCityId) {
+        targetedCounts[state.targetCityId] = Math.max(
+          0,
+          (targetedCounts[state.targetCityId] ?? 1) - 1
+        );
+      }
+      enterStormLoitering(state, nowMs);
+      return;
+    }
 
-    if (!needsTarget) {
+    if (state.movementPhase === "loitering" && nowMs < state.loiterUntilMs) {
+      state.targetBiasStrength = 0;
       return;
     }
 
     if (state.targetCityId) {
-      targetedCounts[state.targetCityId] = Math.max(
-        0,
-        (targetedCounts[state.targetCityId] ?? 1) - 1
-      );
+      return;
     }
 
     const targetCityId = chooseStormTargetCity(
@@ -522,6 +551,10 @@ function ensureStormTargets(
     state.targetAssignedAtMs = nowMs;
     state.targetExpiresAtMs =
       nowMs + Math.round(randomBetween(random, STORM_TARGET_MIN_MS, STORM_TARGET_MAX_MS));
+    state.movementPhase = "nudged";
+    state.loiterUntilMs = nowMs;
+    state.targetBiasStartedAtMs = nowMs;
+    state.targetBiasStrength = 0;
     targetedCounts[targetCityId] = (targetedCounts[targetCityId] ?? 0) + 1;
   });
 }
@@ -593,18 +626,25 @@ function applyStormSteering(storms: StormSystem[], states: StormRuntimeState[], 
 
     state.velocityLat += wanderLat;
     state.velocityLon += wanderLon;
+    state.targetBiasStrength = 0;
 
-    if (state.targetCityId) {
+    if (state.movementPhase === "nudged" && state.targetCityId) {
       const targetCity = cityIndex[state.targetCityId];
       if (targetCity) {
         const direction = normalizeDirection(
           targetCity.lat - state.lat,
           normalizeLongitude(targetCity.lon - state.lon)
         );
+        const ramp =
+          state.targetBiasStartedAtMs === null
+            ? 0
+            : clamp((nowMs - state.targetBiasStartedAtMs) / STORM_TARGET_RAMP_MS, 0, 1);
         const targetMultiplier = state.congestionTicks > 2 ? 0.35 : 1;
+        const appliedBias = ramp * targetMultiplier;
 
-        state.velocityLat += direction.lat * STORM_TARGET_FORCE * targetMultiplier;
-        state.velocityLon += direction.lon * STORM_TARGET_FORCE * targetMultiplier;
+        state.targetBiasStrength = appliedBias;
+        state.velocityLat += direction.lat * STORM_TARGET_FORCE * appliedBias;
+        state.velocityLon += direction.lon * STORM_TARGET_FORCE * appliedBias;
       }
     }
 
@@ -612,7 +652,9 @@ function applyStormSteering(storms: StormSystem[], states: StormRuntimeState[], 
       const openDirection = normalizeDirection(state.lat, normalizeLongitude(state.lon));
       state.velocityLat += openDirection.lat * STORM_OPEN_WATER_FORCE;
       state.velocityLon += openDirection.lon * STORM_OPEN_WATER_FORCE;
-      state.targetExpiresAtMs = Math.min(state.targetExpiresAtMs, nowMs + STORM_TARGET_COOLDOWN_MS);
+      if (state.movementPhase === "nudged") {
+        state.targetExpiresAtMs = Math.min(state.targetExpiresAtMs, nowMs + STORM_STEP_MS);
+      }
     }
   });
 }
@@ -664,7 +706,7 @@ function updateStormHits(
       state.lastHitCityId = state.targetCityId;
       state.lastHitAtMs = nowMs;
       recentHits[state.targetCityId] = nowMs;
-      state.targetExpiresAtMs = nowMs;
+      enterStormLoitering(state, nowMs);
     }
   });
 }
@@ -741,6 +783,11 @@ function interpolateStormState(
     lon: lerpLongitude(lower.lon, upper.lon, progress),
     velocityLat: lerp(lower.velocityLat, upper.velocityLat, progress),
     velocityLon: lerp(lower.velocityLon, upper.velocityLon, progress),
+    movementPhase: progress < 0.5 ? lower.movementPhase : upper.movementPhase,
+    loiterUntilMs: lerp(lower.loiterUntilMs, upper.loiterUntilMs, progress),
+    targetBiasStartedAtMs:
+      progress < 0.5 ? lower.targetBiasStartedAtMs : upper.targetBiasStartedAtMs,
+    targetBiasStrength: lerp(lower.targetBiasStrength, upper.targetBiasStrength, progress),
     congestionTicks:
       progress < 0.5 ? lower.congestionTicks : upper.congestionTicks
   } satisfies StormRuntimeState;
@@ -809,21 +856,12 @@ export function buildStormSnapshots(storms: StormSystem[], elapsedMs: number): S
     { length: Math.floor(TRAIL_DURATION_MS / TRAIL_SAMPLE_STEP_MS) + 1 },
     (_, index) => TRAIL_DURATION_MS - index * TRAIL_SAMPLE_STEP_MS
   ).map((ageMs) => Math.max(0, elapsedMs - ageMs));
-  const sampleTimes = [
-    elapsedMs,
-    ...trailTimes,
-    ...FUTURE_GUIDE_OFFSETS_MS.map((offsetMs) => elapsedMs + offsetMs)
-  ];
+  const sampleTimes = [elapsedMs, ...trailTimes];
   const sampledFields = getStormFieldFramesForTimes(storms, sampleTimes);
   const currentField = sampledFields[0];
   const trailFields = trailTimes.map((timeMs, index) => ({
     ageMs: Math.max(0, elapsedMs - timeMs),
     field: sampledFields[index + 1]
-  }));
-  const futureOffsetStartIndex = 1 + trailTimes.length;
-  const futureFields = FUTURE_GUIDE_OFFSETS_MS.map((offsetMs, index) => ({
-    offsetMs,
-    field: sampledFields[futureOffsetStartIndex + index]
   }));
 
   return storms.map((storm, index) => {
@@ -837,15 +875,6 @@ export function buildStormSnapshots(storms: StormSystem[], elapsedMs: number): S
         ageMs
       }))
       .reverse();
-    const windIndicators = futureFields.map(({ offsetMs, field }) => ({
-      id: `${storm.id}-wind-${offsetMs}`,
-      stormId: storm.id,
-      fromLat: nowPosition.lat,
-      fromLon: nowPosition.lon,
-      toLat: field.states[index].lat,
-      toLon: field.states[index].lon,
-      etaSeconds: Math.round(offsetMs / 1000)
-    }));
 
     return {
       stormId: storm.id,
@@ -855,7 +884,7 @@ export function buildStormSnapshots(storms: StormSystem[], elapsedMs: number): S
       intensity,
       hue: storm.hue,
       trail,
-      windIndicators
+      windIndicators: []
     };
   });
 }
