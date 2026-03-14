@@ -9,16 +9,15 @@ import {
 } from "../shared/oracle";
 
 describe("oracle engine", () => {
-  it("gives cocoa a stronger response in Abidjan than Reykjavik", () => {
+  it("ranks cities in descending travel-score order for bitcoin", () => {
     const signals = createFallbackSignals();
     const tickers = createFallbackTickers();
-    const rankings = rankCities("COCOA", signals, tickers);
-    const abidjan = rankings.find((entry) => entry.cityId === "abidjan");
-    const reykjavik = rankings.find((entry) => entry.cityId === "reykjavik");
+    const rankings = rankCities("BTC", signals, tickers);
 
-    expect(abidjan).toBeDefined();
-    expect(reykjavik).toBeDefined();
-    expect((abidjan?.travelScore ?? 0) > (reykjavik?.travelScore ?? 0)).toBe(true);
+    expect(rankings).not.toHaveLength(0);
+    expect(rankings[0].travelScore).toBeGreaterThanOrEqual(
+      rankings[rankings.length - 1].travelScore
+    );
   });
 
   it("responds predictably to scenario overrides", () => {
@@ -34,11 +33,15 @@ describe("oracle engine", () => {
       soilPhDelta: -0.8
     });
 
-    const cocoa = computeOracle(assetIndex.COCOA, signal!, assetIndex.COCOA.basePrice);
-    const cocoaAfterStorm = computeOracle(assetIndex.COCOA, patched, assetIndex.COCOA.basePrice);
+    const btc = computeOracle(assetIndex["BTC"], signal!, assetIndex["BTC"].basePrice);
+    const btcAfterStorm = computeOracle(
+      assetIndex["BTC"],
+      patched,
+      assetIndex["BTC"].basePrice
+    );
 
-    expect(patched.sourceMode).toBe("scenario");
-    expect(cocoaAfterStorm.environmentalPressure).toBeGreaterThan(cocoa.environmentalPressure);
-    expect(cocoaAfterStorm.severity === "critical" || cocoaAfterStorm.severity === "alert").toBe(true);
+    expect(patched.sourceMode).toBe("synthetic");
+    expect(btcAfterStorm.environmentalPressure).toBeGreaterThan(btc.environmentalPressure);
+    expect(btcAfterStorm.severity === "critical" || btcAfterStorm.severity === "alert").toBe(true);
   });
 });

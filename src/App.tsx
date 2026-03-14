@@ -78,7 +78,6 @@ function App() {
   const {
     selectedAssetId,
     selectedCityId,
-    liveMode,
     audioEnabled,
     oracleHistory,
     feedHistory,
@@ -94,24 +93,23 @@ function App() {
   const speakMutation = useMutation({ mutationFn: speakOracle });
 
   const marketsQuery = useQuery({
-    queryKey: ["markets", liveMode],
-    queryFn: () => fetchMarkets(liveMode),
+    queryKey: ["markets"],
+    queryFn: () => fetchMarkets(),
     refetchInterval: 15_000
   });
 
   const signalsQuery = useQuery({
-    queryKey: ["signals", liveMode],
-    queryFn: () => fetchSignals(liveMode, "all"),
+    queryKey: ["signals"],
+    queryFn: () => fetchSignals("all"),
     refetchInterval: 15_000
   });
 
   const previewQuery = useQuery({
-    queryKey: ["preview", liveMode, selectedAssetId, selectedCityId],
+    queryKey: ["preview", selectedAssetId, selectedCityId],
     queryFn: () =>
       previewScenario({
         assetId: selectedAssetId,
-        cityId: selectedCityId,
-        mode: liveMode
+        cityId: selectedCityId
       }),
     enabled: marketsQuery.isSuccess
   });
@@ -266,10 +264,6 @@ function App() {
         </div>
         <div className="header-stats">
           <div>
-            <span>Mode</span>
-            <strong>{liveMode.toUpperCase()}</strong>
-          </div>
-          <div>
             <span>Tracked cities</span>
             <strong>{cities.length}</strong>
           </div>
@@ -319,14 +313,6 @@ function App() {
               <span className="eyebrow">Selected city — click globe to change</span>
               <strong>{cityIndex[selectedCityId]?.name}</strong>
               <p>{previewQuery.data?.oracleText ?? "Waiting for planetary repricing."}</p>
-            </div>
-            <div className="overlay-panel">
-              <span className="eyebrow">Signal mode</span>
-              <strong>{signalsQuery.data?.sourceMode ?? "fallback"}</strong>
-              <p>
-                Hybrid weather and atmospheric signals with regional soil baselines and dramatic
-                fallback events.
-              </p>
             </div>
           </div>
         </motion.section>

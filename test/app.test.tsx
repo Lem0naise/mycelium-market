@@ -39,12 +39,12 @@ vi.mock("../src/components/GlobeScene", () => ({
 
 const signalsPayload: SignalsResponse = {
   signals: createFallbackSignals(),
-  sourceMode: "fallback"
+  sourceMode: "synthetic"
 };
 
 const marketsPayload: MarketsResponse = {
   tickers: createFallbackTickers(),
-  sourceMode: "fallback",
+  sourceMode: "synthetic",
   asOf: "2026-03-14T10:00:00.000Z"
 };
 
@@ -53,8 +53,7 @@ const previewPayload: ScenarioPreviewResponse = createScenarioPreview(
     assetId: "COCOA",
     cityId: "abidjan",
     compareCityId: "reykjavik",
-    patch: null,
-    mode: "demo"
+    patch: null
   },
   signalsPayload.signals,
   marketsPayload.tickers
@@ -168,13 +167,12 @@ describe("App", () => {
       expect(screen.queryByText("Loading planetary engine")).not.toBeInTheDocument();
     });
 
-    await waitFor(() => expect(screen.getByText("Cocoa Futures")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Bitcoin")).toBeInTheDocument());
 
-    const assetSelect = screen.getByLabelText("Asset");
-    await user.selectOptions(assetSelect, "BTC");
+    await user.click(screen.getByRole("button", { name: /NVDA/i }));
 
     await waitFor(() => {
-      expect(assetSelect).toHaveValue("BTC");
+      expect(screen.getByText("NVIDIA")).toBeInTheDocument();
     });
   });
 });

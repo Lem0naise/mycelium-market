@@ -9,28 +9,28 @@ import {
 import { createFallbackSignals, createFallbackTickers } from "../shared/oracle";
 
 describe("terra arbitrage api", () => {
-  it("returns fallback markets through the proxy logic", async () => {
+  it("returns synthetic markets through the proxy logic", async () => {
     const provider = createMockProvider({
-      async getMarkets(_mode) {
+      async getMarkets() {
         return {
           tickers: createFallbackTickers(),
-          sourceMode: "fallback",
+          sourceMode: "synthetic",
           asOf: "2026-03-14T10:00:00.000Z"
         };
       }
     });
 
-    const response = await resolveMarkets(provider, "live");
-    expect(response.tickers).toHaveLength(7);
-    expect(response.sourceMode).toBe("fallback");
+    const response = await resolveMarkets(provider);
+    expect(response.tickers).toHaveLength(5);
+    expect(response.sourceMode).toBe("synthetic");
   });
 
   it("keeps scenario preview working when everything is synthetic", async () => {
     const provider = createMockProvider({
-      async getSignals(_mode) {
+      async getSignals() {
         return {
           signals: createFallbackSignals(),
-          sourceMode: "fallback"
+          sourceMode: "synthetic"
         };
       }
     });
@@ -46,8 +46,7 @@ describe("terra arbitrage api", () => {
         windDelta: 1,
         soilMoistureDelta: 8,
         soilPhDelta: -0.2
-      },
-      mode: "demo"
+      }
     });
 
     expect(response.primary.cityId).toBe("abidjan");
@@ -58,7 +57,7 @@ describe("terra arbitrage api", () => {
 
   it("filters signals and emits oracle speech payloads without a real voice key", async () => {
     const provider = createMockProvider();
-    const signals = await resolveSignals(provider, "live", "abidjan");
+    const signals = await resolveSignals(provider, "abidjan");
     const speech = await resolveOracleSpeech(provider, {
       text: "The storm has become a valuation event.",
       severity: "alert"

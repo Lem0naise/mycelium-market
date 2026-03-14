@@ -15,12 +15,12 @@ async function requestJson<T>(input: RequestInfo, init?: RequestInit) {
   return (await response.json()) as T;
 }
 
-export function fetchMarkets(mode: "live" | "demo") {
-  return requestJson<MarketsResponse>(`/api/markets?mode=${mode}`);
+export function fetchMarkets() {
+  return requestJson<MarketsResponse>("/api/markets");
 }
 
-export function fetchSignals(mode: "live" | "demo", cityId = "all") {
-  return requestJson<SignalsResponse>(`/api/signals?mode=${mode}&cityId=${cityId}`);
+export function fetchSignals(cityId = "all") {
+  return requestJson<SignalsResponse>(`/api/signals?cityId=${cityId}`);
 }
 
 export function previewScenario(payload: ScenarioPreviewRequest) {

@@ -85,7 +85,7 @@ export function applyScenarioPatch(
     airQuality: clamp(signal.airQuality + (patch.airQualityDelta ?? patch.windDelta * 1.4), 0, 180),
     soilMoisture: clamp(signal.soilMoisture + patch.soilMoistureDelta, 0, 100),
     soilPh: clamp(signal.soilPh + patch.soilPhDelta, 4, 9),
-    sourceMode: "scenario"
+    sourceMode: "synthetic"
   };
 }
 
@@ -342,7 +342,7 @@ export function createFallbackTickers() {
       changePct: round(Math.cos(index * 0.9 + 0.6) * 3.8, 2),
       volume: `${round(1.8 + index * 0.7, 1)}B`,
       sentiment,
-      sourceMode: "fallback" as const
+      sourceMode: "synthetic" as const
     };
   });
 }
@@ -354,6 +354,6 @@ export function createFallbackSignals() {
     ...city.baselines,
     humidity: clamp(city.baselines.humidity + Math.sin(index + 2) * 3, 0, 100),
     rain: clamp(city.baselines.rain + Math.cos(index * 1.3) * 1.4, 0, 20),
-    sourceMode: "fallback" as const
+    sourceMode: "synthetic" as const
   }));
 }

@@ -78,7 +78,6 @@ export function MarketPanel({
 
       <div className="panel-topline">
         <span className="eyebrow">Market Board</span>
-        <span className="status-pill">{primaryTicker?.sourceMode ?? "live"}</span>
       </div>
       <div className="ticker-grid">
         {tickers.map((ticker) => {
@@ -168,4 +167,3 @@ export function MarketPanel({
     </aside>
   );
 }
-

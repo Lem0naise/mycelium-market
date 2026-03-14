@@ -7,14 +7,12 @@ type ScenarioControls = Omit<ScenarioPatch, "targetCityId">;
 type AppState = {
   selectedAssetId: string;
   selectedCityId: string;
-  liveMode: "live" | "demo";
   audioEnabled: boolean;
   scenario: ScenarioControls;
   oracleHistory: OracleSpeech[];
   feedHistory: EventFeedItem[];
   setAsset: (assetId: string) => void;
   setCity: (cityId: string) => void;
-  setLiveMode: (mode: "live" | "demo") => void;
   toggleAudio: () => void;
   setScenarioValue: (key: keyof ScenarioControls, value: number) => void;
   resetScenario: () => void;
@@ -35,14 +33,12 @@ const initialScenario: ScenarioControls = {
 export const useAppStore = create<AppState>((set) => ({
   selectedAssetId: defaultAssetId,
   selectedCityId: defaultCityId,
-  liveMode: "live",
   audioEnabled: true,
   scenario: initialScenario,
   oracleHistory: [],
   feedHistory: [],
   setAsset: (selectedAssetId) => set({ selectedAssetId }),
   setCity: (selectedCityId) => set({ selectedCityId }),
-  setLiveMode: (liveMode) => set({ liveMode }),
   toggleAudio: () => set((state) => ({ audioEnabled: !state.audioEnabled })),
   setScenarioValue: (key, value) =>
     set((state) => ({

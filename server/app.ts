@@ -2,9 +2,6 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import {
-  assetProfiles,
-  cities,
-  cityIndex,
   defaultAssetId,
   defaultCityId
 } from "../shared/data";
@@ -14,193 +11,19 @@ import {
   createScenarioPreview
 } from "../shared/oracle";
 import type {
-  EnvironmentalSignal,
   MarketsResponse,
-  MarketTicker,
   OracleSpeakRequest,
   ScenarioPreviewRequest,
-  SignalsResponse,
-  SourceMode
+  SignalsResponse
 } from "../shared/types";
 
 dotenv.config();
 
 type DataProvider = {
-  getSignals: (mode: "live" | "demo") => Promise<{ signals: EnvironmentalSignal[]; sourceMode: SourceMode }>;
-  getMarkets: (mode: "live" | "demo") => Promise<MarketsResponse>;
+  getSignals: () => Promise<SignalsResponse>;
+  getMarkets: () => Promise<MarketsResponse>;
   speak: (text: string) => Promise<string | null>;
 };
-
-const yahooSymbolMap: Record<string, string | null> = {
-  COCOA: "CC=F",
-  BRENT: "BZ=F",
-  BTC: "BTC-USD",
-  NVDA: "NVDA",
-  DAL: "DAL",
-  TAN: "TAN",
-  "KALSHI-RAIN": null
-};
-
-const sentimentFromChange = (changePct: number): MarketTicker["sentiment"] => {
-  if (changePct >= 3) {
-    return "feral";
-  }
-  if (changePct <= -2) {
-    return "fragile";
-  }
-  if (Math.abs(changePct) < 0.8) {
-    return "dormant";
-  }
-  return "ascendant";
-};
-
-const round = (value: number, precision = 2) => {
-  const factor = 10 ** precision;
-  return Math.round(value * factor) / factor;
-};
-
-const fetchJson = async <T>(url: string) => {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2500);
-
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) {
-      throw new Error(`Request failed: ${response.status}`);
-    }
-
-    return (await response.json()) as T;
-  } finally {
-    clearTimeout(timeout);
-  }
-};
-
-async function fetchWeatherSignal(cityId: string, mode: "live" | "demo"): Promise<EnvironmentalSignal> {
-  const city = cityIndex[cityId] ?? cityIndex[defaultCityId];
-
-  if (mode === "demo") {
-    return {
-      cityId: city.id,
-      region: city.region,
-      ...city.baselines,
-      humidity: Math.min(100, city.baselines.humidity + (city.id === "manaus" ? 4 : 0)),
-      rain: Math.min(20, city.baselines.rain + (city.id === "manaus" ? 2.2 : 0)),
-      sourceMode: "demo"
-    };
-  }
-
-  try {
-    const weather = await fetchJson<{
-      current?: {
-        temperature_2m?: number;
-        relative_humidity_2m?: number;
-        precipitation?: number;
-        wind_speed_10m?: number;
-      };
-    }>(
-      `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m`
-    );
-
-    const airQuality = await fetchJson<{
-      current?: {
-        us_aqi?: number;
-      };
-    }>(
-      `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${city.lat}&longitude=${city.lon}&current=us_aqi`
-    );
-
-    return {
-      cityId: city.id,
-      region: city.region,
-      humidity: weather.current?.relative_humidity_2m ?? city.baselines.humidity,
-      rain: weather.current?.precipitation ?? city.baselines.rain,
-      temperature: weather.current?.temperature_2m ?? city.baselines.temperature,
-      wind: weather.current?.wind_speed_10m ?? city.baselines.wind,
-      airQuality: airQuality.current?.us_aqi ?? city.baselines.airQuality,
-      soilMoisture: city.baselines.soilMoisture,
-      soilPh: city.baselines.soilPh,
-      sourceMode: "hybrid"
-    };
-  } catch {
-    return {
-      cityId: city.id,
-      region: city.region,
-      ...city.baselines,
-      sourceMode: "fallback"
-    };
-  }
-}
-
-async function fetchMarketTicker(assetId: string, mode: "live" | "demo"): Promise<MarketTicker> {
-  const asset = assetProfiles.find((item) => item.id === assetId) ?? assetProfiles[0];
-  const symbol = yahooSymbolMap[assetId];
-
-  if (mode === "demo") {
-    return {
-      assetId,
-      price: round(asset.basePrice * (1 + Math.sin(asset.basePrice) * 0.02)),
-      changePct: round(Math.cos(asset.basePrice / 17) * 4.2),
-      volume: `${round(asset.basePrice / 3200 + 1.4, 1)}B`,
-      sentiment: "feral",
-      sourceMode: "demo"
-    };
-  }
-
-  if (!symbol) {
-    return {
-      assetId,
-      price: asset.basePrice,
-      changePct: 5.4,
-      volume: "0.8B",
-      sentiment: "ascendant",
-      sourceMode: "fallback"
-    };
-  }
-
-  try {
-    const payload = await fetchJson<{
-      chart?: {
-        result?: Array<{
-          meta?: {
-            regularMarketPrice?: number;
-          };
-          indicators?: {
-            quote?: Array<{
-              close?: Array<number | null>;
-              volume?: Array<number | null>;
-            }>;
-          };
-        }>;
-      };
-    }>(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`);
-
-    const result = payload.chart?.result?.[0];
-    const closes = result?.indicators?.quote?.[0]?.close?.filter((value): value is number => value != null) ?? [];
-    const price = result?.meta?.regularMarketPrice ?? closes.at(-1) ?? asset.basePrice;
-    const previous = closes.at(-2) ?? price;
-    const volume = result?.indicators?.quote?.[0]?.volume?.at(-1) ?? 0;
-    const changePct = previous === 0 ? 0 : round(((price - previous) / previous) * 100);
-
-    return {
-      assetId,
-      price: round(price),
-      changePct,
-      volume: `${round(volume / 1_000_000_000, 1)}B`,
-      sentiment: sentimentFromChange(changePct),
-      sourceMode: "hybrid"
-    };
-  } catch {
-    const fallback = createFallbackTickers().find((ticker) => ticker.assetId === assetId);
-    return fallback ?? {
-      assetId,
-      price: asset.basePrice,
-      changePct: 0,
-      volume: "0.0B",
-      sentiment: "dormant",
-      sourceMode: "fallback"
-    };
-  }
-}
 
 async function elevenLabsSpeak(text: string) {
   const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -242,42 +65,29 @@ async function elevenLabsSpeak(text: string) {
 
 function createDefaultProvider(): DataProvider {
   return {
-    async getSignals(mode) {
-      if (mode === "demo") {
-        return { signals: createFallbackSignals().map((signal) => ({ ...signal, sourceMode: "demo" })), sourceMode: "demo" };
-      }
-
-      const signals = await Promise.all(cities.map((city) => fetchWeatherSignal(city.id, mode)));
-      const sourceMode = signals.some((signal) => signal.sourceMode === "hybrid") ? "hybrid" : "fallback";
-      return { signals, sourceMode };
+    async getSignals() {
+      return {
+        signals: createFallbackSignals(),
+        sourceMode: "synthetic"
+      };
     },
-    async getMarkets(mode) {
-      if (mode === "demo") {
-        return {
-          tickers: await Promise.all(assetProfiles.map((asset) => fetchMarketTicker(asset.id, "demo"))),
-          sourceMode: "demo",
-          asOf: new Date().toISOString()
-        };
-      }
-
-      const tickers = await Promise.all(assetProfiles.map((asset) => fetchMarketTicker(asset.id, "live")));
-      const sourceMode = tickers.some((ticker) => ticker.sourceMode === "hybrid") ? "hybrid" : "fallback";
-      return { tickers, sourceMode, asOf: new Date().toISOString() };
+    async getMarkets() {
+      return {
+        tickers: createFallbackTickers(),
+        sourceMode: "synthetic",
+        asOf: new Date().toISOString()
+      };
     },
     speak: elevenLabsSpeak
   };
 }
 
-export async function resolveMarkets(provider: DataProvider, mode: "live" | "demo") {
-  return provider.getMarkets(mode);
+export async function resolveMarkets(provider: DataProvider) {
+  return provider.getMarkets();
 }
 
-export async function resolveSignals(
-  provider: DataProvider,
-  mode: "live" | "demo",
-  cityId?: string
-) {
-  const signals = await provider.getSignals(mode);
+export async function resolveSignals(provider: DataProvider, cityId?: string) {
+  const signals = await provider.getSignals();
   const filteredSignals =
     !cityId || cityId === "all"
       ? signals.signals
@@ -295,10 +105,9 @@ export async function resolveScenarioPreview(
   provider: DataProvider,
   body: ScenarioPreviewRequest
 ) {
-  const mode = body.mode === "demo" ? "demo" : "live";
   const [signalPayload, marketPayload] = await Promise.all([
-    provider.getSignals(mode),
-    provider.getMarkets(mode)
+    provider.getSignals(),
+    provider.getMarkets()
   ]);
 
   return createScenarioPreview(
@@ -306,8 +115,7 @@ export async function resolveScenarioPreview(
       assetId: body.assetId ?? defaultAssetId,
       cityId: body.cityId ?? defaultCityId,
       compareCityId: body.compareCityId,
-      patch: body.patch ?? null,
-      mode
+      patch: body.patch ?? null
     },
     signalPayload.signals,
     marketPayload.tickers
@@ -337,15 +145,13 @@ export function createApp(provider = createDefaultProvider()) {
   app.use(cors());
   app.use(express.json());
 
-  app.get("/api/markets", async (request, response) => {
-    const mode = request.query.mode === "demo" ? "demo" : "live";
-    response.json(await resolveMarkets(provider, mode));
+  app.get("/api/markets", async (_request, response) => {
+    response.json(await resolveMarkets(provider));
   });
 
   app.get("/api/signals", async (request, response) => {
-    const mode = request.query.mode === "demo" ? "demo" : "live";
     const cityId = typeof request.query.cityId === "string" ? request.query.cityId : undefined;
-    response.json(await resolveSignals(provider, mode, cityId));
+    response.json(await resolveSignals(provider, cityId));
   });
 
   app.post("/api/scenario/preview", async (request, response) => {
@@ -369,16 +175,16 @@ export function createApp(provider = createDefaultProvider()) {
 
 export function createMockProvider(overrides: Partial<DataProvider> = {}): DataProvider {
   return {
-    async getSignals(_mode) {
+    async getSignals() {
       return {
         signals: createFallbackSignals(),
-        sourceMode: "fallback"
+        sourceMode: "synthetic"
       };
     },
-    async getMarkets(_mode) {
+    async getMarkets() {
       return {
         tickers: createFallbackTickers(),
-        sourceMode: "fallback",
+        sourceMode: "synthetic",
         asOf: new Date().toISOString()
       };
     },

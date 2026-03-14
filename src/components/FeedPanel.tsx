@@ -11,7 +11,6 @@ export function FeedPanel({ feed, oracleHistory }: FeedPanelProps) {
     <aside className="panel feed-panel">
       <div className="panel-topline">
         <span className="eyebrow">Feed</span>
-        <span className="status-pill live">LIVE</span>
       </div>
       <h2>Oracle Feed</h2>
       <div className="feed-list">
@@ -45,4 +44,3 @@ export function FeedPanel({ feed, oracleHistory }: FeedPanelProps) {
     </aside>
   );
 }
-

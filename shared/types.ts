@@ -1,4 +1,4 @@
-export type SourceMode = "live" | "fallback" | "hybrid" | "scenario" | "demo";
+export type SourceMode = "synthetic";
 
 export type MarketType = "stock" | "commodity" | "crypto" | "prediction";
 
@@ -48,6 +48,7 @@ export type AssetProfile = {
 export type OracleComputation = {
   assetId: string;
   cityId: string;
+  compareCityId?: string;
   earthDelta: number;
   travelScore: number;
   cityAdvantage: number;
@@ -112,8 +113,8 @@ export type EventFeedItem = {
 export type ScenarioPreviewRequest = {
   assetId: string;
   cityId: string;
+  compareCityId?: string;
   patch?: ScenarioPatch | null;
-  mode: "live" | "demo";
 };
 
 export type RankedCity = {
@@ -127,6 +128,7 @@ export type RankedCity = {
 
 export type ScenarioPreviewResponse = {
   primary: OracleComputation;
+  compare: OracleComputation | null;
   rankings: RankedCity[];
   signals: EnvironmentalSignal[];
   feed: EventFeedItem[];
@@ -149,4 +151,3 @@ export type MarketsResponse = {
   sourceMode: SourceMode;
   asOf: string;
 };
-
