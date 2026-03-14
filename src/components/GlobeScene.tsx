@@ -50,7 +50,7 @@ type MapLabel = {
   isBlocked: boolean;
 };
 
-type GlobePointDatum = {
+export type GlobePointDatum = {
   id: string;
   lat: number;
   lng: number;
@@ -70,7 +70,7 @@ type GlobeRingDatum = {
   repeatPeriod: number;
 };
 
-type GlobeArcDatum = {
+export type GlobeArcDatum = {
   id: string;
   startLat: number;
   startLng: number;
@@ -94,6 +94,16 @@ type GlobePolygonDatum = {
 const baseRadius = 2.35;
 const GLOBE_ROTATION_Y = -0.55;
 const STORM_FOOTPRINT_SEGMENTS = 40;
+const STORM_SWIRL_SEGMENTS = 34;
+const STORM_SWIRL_TURNS = 1.55;
+const STORM_SWIRL_ROTATION_SPEED = 0.46;
+const STORM_FOOTPRINT_FILL = "#99b5c2";
+const STORM_FOOTPRINT_OUTLINE = "#dcecf2";
+const STORM_SWIRL_COLOR = "#eef8fb";
+const STORM_FOOTPRINT_FILL_OPACITY = 0.24;
+const STORM_FOOTPRINT_OUTLINE_OPACITY = 0.48;
+const STORM_SWIRL_PRIMARY_OPACITY = 0.3;
+const STORM_SWIRL_SECONDARY_OPACITY = 0.17;
 const globeTopology = countriesTopology as Record<string, unknown> & {
   objects: {
     countries: unknown;
@@ -159,6 +169,42 @@ function destinationPoint(
   };
 }
 
+function buildStormSwirlGeometry(radius: number) {
+  const positions: number[] = [];
+
+  for (let index = 0; index < STORM_SWIRL_SEGMENTS; index += 1) {
+    const progress = index / Math.max(1, STORM_SWIRL_SEGMENTS - 1);
+    const angle = progress * Math.PI * 2 * STORM_SWIRL_TURNS;
+    const currentRadius = radius * (0.14 + progress * 0.42);
+    positions.push(
+      Math.cos(angle) * currentRadius,
+      Math.sin(angle) * currentRadius,
+      0
+    );
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  return geometry;
+}
+
+function buildStormOutlineGeometry(radius: number) {
+  const positions: number[] = [];
+
+  for (let index = 0; index < STORM_FOOTPRINT_SEGMENTS; index += 1) {
+    const angle = (index / STORM_FOOTPRINT_SEGMENTS) * Math.PI * 2;
+    positions.push(
+      Math.cos(angle) * radius,
+      Math.sin(angle) * radius,
+      0
+    );
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  return geometry;
+}
+
 function buildCityPointData(
   signals: EnvironmentalSignal[],
   rankings: RankedCity[],
@@ -196,15 +242,8 @@ function buildCityPointData(
   });
 }
 
-function buildStormPointData(storms: StormSnapshot[]) {
-  return storms.map<GlobePointDatum>((storm) => ({
-    id: `${storm.stormId}-core`,
-    lat: storm.lat,
-    lng: storm.lon,
-    color: toRgba(storm.hue, 0.92),
-    altitude: 0.11,
-    radius: 0.28 + storm.intensity * 0.12
-  }));
+export function buildStormPointData(_storms: StormSnapshot[]) {
+  return [] as GlobePointDatum[];
 }
 
 function buildRingData(
@@ -215,10 +254,10 @@ function buildRingData(
   return [];
 }
 
-function buildArcData(
+export function buildArcData(
   focusedCityId: string,
   selectedAssetId: string,
-  storms: StormSnapshot[],
+  _storms: StormSnapshot[],
   flight: FlightState | null
 ) {
   const focusedCity = cityIndex[focusedCityId];
@@ -239,22 +278,6 @@ function buildArcData(
       dashAnimateTime: 2400 + index * 180
     }));
 
-  const windArcs = storms.flatMap((storm) =>
-    storm.windIndicators.map<GlobeArcDatum>((indicator, index) => ({
-      id: indicator.id,
-      startLat: indicator.fromLat,
-      startLng: indicator.fromLon,
-      endLat: indicator.toLat,
-      endLng: indicator.toLon,
-      color: [toRgba("#b4fbff", 0.62), toRgba(storm.hue, 0.05)],
-      altitude: 0.08 + index * 0.01,
-      dashLength: 0.2,
-      dashGap: 0.42,
-      dashInitialGap: index * 0.12,
-      dashAnimateTime: 1200 + index * 180
-    }))
-  );
-
   const flightArc = flight
     ? [
         {
@@ -273,7 +296,7 @@ function buildArcData(
       ]
     : [];
 
-  return [...targetArcs, ...windArcs, ...flightArc];
+  return [...targetArcs, ...flightArc];
 }
 
 function buildCityLabels(focusedCityId: string, currentCityId: string, blockedCityIds: string[]) {
@@ -408,113 +431,134 @@ function StormFootprints({
   storms: StormSnapshot[];
 }) {
   const globeScale = useMemo(() => baseRadius / globe.getGlobeRadius(), [globe]);
+  const primarySwirlRefs = useRef<Array<THREE.Group | null>>([]);
+  const secondarySwirlRefs = useRef<Array<THREE.Group | null>>([]);
 
   const geometries = useMemo(() => {
     return storms.map((storm) => {
-      const centerCoords = globe.getCoords(storm.lat, storm.lon, 0.012);
+      const centerCoords = globe.getCoords(storm.lat, storm.lon, 0.009);
       const center = new THREE.Vector3(
         centerCoords.x * globeScale,
         centerCoords.y * globeScale,
         centerCoords.z * globeScale
       );
+      const perimeterPoint = destinationPoint({ lat: storm.lat, lon: storm.lon }, 90, storm.radiusDeg);
+      const perimeterCoords = globe.getCoords(perimeterPoint.lat, perimeterPoint.lon, 0.009);
+      const localRadius = new THREE.Vector3(
+        perimeterCoords.x * globeScale,
+        perimeterCoords.y * globeScale,
+        perimeterCoords.z * globeScale
+      ).distanceTo(center);
+      const swirlQuaternion = new THREE.Quaternion().setFromUnitVectors(
+        new THREE.Vector3(0, 0, 1),
+        center.clone().normalize()
+      );
+      const outerFill = new THREE.CircleGeometry(localRadius, STORM_FOOTPRINT_SEGMENTS);
+      const outline = buildStormOutlineGeometry(localRadius);
 
-      const outerPoints = Array.from({ length: STORM_FOOTPRINT_SEGMENTS }, (_, index) => {
-        const perimeterPoint = destinationPoint(
-          { lat: storm.lat, lon: storm.lon },
-          (index / STORM_FOOTPRINT_SEGMENTS) * 360,
-          storm.radiusDeg
-        );
-        const coords = globe.getCoords(perimeterPoint.lat, perimeterPoint.lon, 0.012);
-        return new THREE.Vector3(coords.x * globeScale, coords.y * globeScale, coords.z * globeScale);
+      const swirl = buildStormSwirlGeometry(localRadius);
+      const swirlPrimaryMaterial = new THREE.LineBasicMaterial({
+        color: STORM_SWIRL_COLOR,
+        transparent: true,
+        opacity: STORM_SWIRL_PRIMARY_OPACITY,
+        depthWrite: false
       });
-
-      const innerPoints = Array.from({ length: STORM_FOOTPRINT_SEGMENTS }, (_, index) => {
-        const perimeterPoint = destinationPoint(
-          { lat: storm.lat, lon: storm.lon },
-          (index / STORM_FOOTPRINT_SEGMENTS) * 360,
-          storm.radiusDeg * 0.58
-        );
-        const coords = globe.getCoords(perimeterPoint.lat, perimeterPoint.lon, 0.0135);
-        return new THREE.Vector3(coords.x * globeScale, coords.y * globeScale, coords.z * globeScale);
+      const swirlSecondaryMaterial = new THREE.LineBasicMaterial({
+        color: STORM_SWIRL_COLOR,
+        transparent: true,
+        opacity: STORM_SWIRL_SECONDARY_OPACITY,
+        depthWrite: false
       });
-
-      const buildFanGeometry = (points: THREE.Vector3[]) => {
-        const positions: number[] = [];
-        points.forEach((point, index) => {
-          const nextPoint = points[(index + 1) % points.length];
-          positions.push(
-            center.x,
-            center.y,
-            center.z,
-            point.x,
-            point.y,
-            point.z,
-            nextPoint.x,
-            nextPoint.y,
-            nextPoint.z
-          );
-        });
-
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-        geometry.computeVertexNormals();
-        return geometry;
-      };
-
-      const buildLoopGeometry = (points: THREE.Vector3[]) => {
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute(
-          "position",
-          new THREE.Float32BufferAttribute(points.flatMap((point) => [point.x, point.y, point.z]), 3)
-        );
-        return geometry;
-      };
+      const swirlPrimaryLine = new THREE.Line(swirl, swirlPrimaryMaterial);
+      const swirlSecondaryLine = new THREE.Line(swirl, swirlSecondaryMaterial);
+      swirlPrimaryLine.renderOrder = 5;
+      swirlSecondaryLine.renderOrder = 5;
+      swirlSecondaryLine.rotation.z = Math.PI;
 
       return {
         id: storm.stormId,
-        hue: storm.hue,
-        outerFill: buildFanGeometry(outerPoints),
-        innerFill: buildFanGeometry(innerPoints),
-        outline: buildLoopGeometry(outerPoints)
+        center,
+        swirlQuaternion,
+        outerFill,
+        outline,
+        swirl,
+        swirlPrimaryMaterial,
+        swirlSecondaryMaterial,
+        swirlPrimaryLine,
+        swirlSecondaryLine
       };
     });
   }, [globe, globeScale, storms]);
+
+  useFrame((state) => {
+    const baseRotation = state.clock.elapsedTime * STORM_SWIRL_ROTATION_SPEED;
+    primarySwirlRefs.current.forEach((group, index) => {
+      if (!group) {
+        return;
+      }
+
+      group.rotation.z = baseRotation + index * 0.32;
+    });
+
+    secondarySwirlRefs.current.forEach((group, index) => {
+      if (!group) {
+        return;
+      }
+
+      group.rotation.z = -baseRotation * 0.72 - index * 0.18;
+    });
+  });
 
   useEffect(() => {
     return () => {
       geometries.forEach((geometrySet) => {
         geometrySet.outerFill.dispose();
-        geometrySet.innerFill.dispose();
         geometrySet.outline.dispose();
+        geometrySet.swirl.dispose();
+        geometrySet.swirlPrimaryMaterial.dispose();
+        geometrySet.swirlSecondaryMaterial.dispose();
       });
     };
   }, [geometries]);
 
   return (
     <group>
-      {geometries.map((geometrySet) => (
+      {geometries.map((geometrySet, index) => (
         <group key={geometrySet.id}>
-          <mesh geometry={geometrySet.outerFill} renderOrder={3}>
-            <meshBasicMaterial
-              color="#ff9e54"
-              transparent
-              opacity={0.22}
-              depthWrite={false}
-              side={THREE.DoubleSide}
-            />
-          </mesh>
-          <mesh geometry={geometrySet.innerFill} renderOrder={4}>
-            <meshBasicMaterial
-              color="#ffcc7a"
-              transparent
-              opacity={0.18}
-              depthWrite={false}
-              side={THREE.DoubleSide}
-            />
-          </mesh>
-          <lineLoop geometry={geometrySet.outline} renderOrder={5}>
-            <lineBasicMaterial color="#ffd89b" transparent opacity={0.9} depthWrite={false} />
-          </lineLoop>
+          <group position={geometrySet.center} quaternion={geometrySet.swirlQuaternion}>
+            <mesh geometry={geometrySet.outerFill} renderOrder={3}>
+              <meshBasicMaterial
+                color={STORM_FOOTPRINT_FILL}
+                transparent
+                opacity={STORM_FOOTPRINT_FILL_OPACITY}
+                depthWrite={false}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
+            <lineLoop geometry={geometrySet.outline} renderOrder={4}>
+              <lineBasicMaterial
+                color={STORM_FOOTPRINT_OUTLINE}
+                transparent
+                opacity={STORM_FOOTPRINT_OUTLINE_OPACITY}
+                depthWrite={false}
+              />
+            </lineLoop>
+            <group
+              ref={(node) => {
+                primarySwirlRefs.current[index] = node;
+              }}
+            >
+              <primitive object={geometrySet.swirlPrimaryLine} />
+            </group>
+            <group
+              ref={(node) => {
+                secondarySwirlRefs.current[index] = node;
+              }}
+              scale={0.74}
+            >
+              <primitive object={geometrySet.swirlSecondaryLine} />
+            </group>
+          </group>
         </group>
       ))}
     </group>
@@ -702,11 +746,6 @@ function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeRenderStage })
       visualSignals
     ]
   );
-  const stormPointData = useMemo(() => buildStormPointData(visualStorms), [visualStorms]);
-  const pointData = useMemo(
-    () => [...cityPointData, ...stormPointData],
-    [cityPointData, stormPointData]
-  );
   const essentialPointData = useMemo(
     () =>
       cityPointData.filter(
@@ -720,13 +759,13 @@ function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeRenderStage })
   );
   const arcData = useMemo(
     () => buildArcData(props.focusedCityId, props.selectedAssetId, visualStorms, visualFlight),
-    [props.focusedCityId, props.selectedAssetId, visualFlight, visualStorms]
+    [props.focusedCityId, props.selectedAssetId, visualFlight]
   );
   const showSignalLayers = shouldRenderSignalLayers(props.detailStage);
 
   useEffect(() => {
-    globe.pointsData(showSignalLayers ? pointData : essentialPointData);
-  }, [essentialPointData, globe, pointData, showSignalLayers]);
+    globe.pointsData(showSignalLayers ? cityPointData : essentialPointData);
+  }, [cityPointData, essentialPointData, globe, showSignalLayers]);
 
   useEffect(() => {
     globe.ringsData(showSignalLayers ? ringData : []);
