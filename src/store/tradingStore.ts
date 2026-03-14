@@ -13,6 +13,7 @@ export type TradingState = {
   holdings: Record<string, Record<string, number>>;
   prices: Record<string, Record<string, number>>;
   changePct: Record<string, Record<string, number>>;
+  priceHistory: Record<string, Record<string, number[]>>;
   signalHistory: Record<string, Partial<Record<SignalKey, number[]>>>;
   buyAsset: (
     cityId: string,
@@ -36,16 +37,19 @@ const INITIAL_CASH = 100000;
 const initialHoldings: Record<string, Record<string, number>> = {};
 const initialPrices: Record<string, Record<string, number>> = {};
 const initialChangePct: Record<string, Record<string, number>> = {};
+const initialPriceHistory: Record<string, Record<string, number[]>> = {};
 
 cities.forEach((city) => {
   initialHoldings[city.id] = {};
   initialPrices[city.id] = {};
   initialChangePct[city.id] = {};
+  initialPriceHistory[city.id] = {};
 
   assetProfiles.forEach((asset) => {
     initialHoldings[city.id][asset.id] = 0;
     initialPrices[city.id][asset.id] = asset.basePrice;
     initialChangePct[city.id][asset.id] = 0;
+    initialPriceHistory[city.id][asset.id] = [asset.basePrice];
   });
 });
 
@@ -101,6 +105,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
   cash: INITIAL_CASH,
   holdings: JSON.parse(JSON.stringify(initialHoldings)),
   prices: JSON.parse(JSON.stringify(initialPrices)),
+  priceHistory: JSON.parse(JSON.stringify(initialPriceHistory)),
   changePct: JSON.parse(JSON.stringify(initialChangePct)),
   signalHistory: {},
 
@@ -220,6 +225,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
     set((state) => {
       const newCityPrices = { ...state.prices[cityId] };
       const newCityChangePct = { ...state.changePct[cityId] };
+      const newCityPriceHistory = { ...state.priceHistory[cityId] };
 
       Object.keys(newCityPrices).forEach((assetId) => {
         const delta = earthDeltas[assetId] || 0;
@@ -228,16 +234,23 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
 
         // Log-scale movement: shift in log-space so all assets move by the same
         // percentage regardless of their current absolute price level.
-        const logShift = delta * 0.005;
+        // Scaled so max earthDelta (~12) produces ~2-3% per tick.
+        const logShift = delta * 0.002;
 
-        // Mild mean reversion: pull log(price) back toward log(basePrice).
-        // Strength of 0.02 means a price 10× above base feels ~4.6% pull per tick.
-        const meanRevPull = -0.02 * (Math.log(oldPrice) - Math.log(basePrice));
+        // Medium mean reversion: pull log(price) back toward log(basePrice).
+        // Strength of 0.05 means a price 10× above base feels ~3.5% pull per tick.
+        const meanRevPull = -0.05 * (Math.log(oldPrice) - Math.log(basePrice));
 
-        const logNoise = (Math.random() - 0.5) * 0.001;
+        // More substantial random walk component — keeps charts alive even when
+        // signals are flat. ±0.3% per tick (uniform).
+        const logNoise = (Math.random() - 0.5) * 0.006;
 
         const newPrice = Math.max(0.01, Math.exp(Math.log(oldPrice) + logShift + meanRevPull + logNoise));
         newCityPrices[assetId] = newPrice;
+
+        const WINDOW = 40;
+        const prevHistory = newCityPriceHistory[assetId] || [basePrice];
+        newCityPriceHistory[assetId] = [...prevHistory, newPrice].slice(-WINDOW);
 
         // Raw single-tick change — no rolling average, no lag.
         const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;
@@ -246,6 +259,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
 
       return {
         prices: { ...state.prices, [cityId]: newCityPrices },
+        priceHistory: { ...state.priceHistory, [cityId]: newCityPriceHistory },
         changePct: { ...state.changePct, [cityId]: newCityChangePct }
       };
     }),
@@ -255,6 +269,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       cash: INITIAL_CASH,
       holdings: JSON.parse(JSON.stringify(initialHoldings)),
       prices: JSON.parse(JSON.stringify(initialPrices)),
+      priceHistory: JSON.parse(JSON.stringify(initialPriceHistory)),
       changePct: JSON.parse(JSON.stringify(initialChangePct)),
       signalHistory: {}
     }),

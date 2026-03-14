@@ -72,7 +72,7 @@ export function MarketPanel({
   flight,
   onSelectAsset,
 }: MarketPanelProps) {
-  const { cash, holdings, prices, buyAsset, sellAsset, resetPortfolio, signalHistory } = useTradingStore();
+  const { cash, holdings, prices, priceHistory, buyAsset, sellAsset, resetPortfolio, signalHistory } = useTradingStore();
 
   const asset = assetIndex[selectedAssetId];
   const primaryTicker = tickers.find((ticker) => ticker.assetId === selectedAssetId);
@@ -92,7 +92,6 @@ export function MarketPanel({
     currentMycelium.soilPh,
     currentMycelium.humidity
   );
-  const isFocusedCityBlocked = blockedCityIds.includes(focusedCityId);
   const isLocalTradingWindow = focusedCityId === currentCityId && !flight;
 
   const primaryDriver = (Object.entries(asset.ecologicalWeights) as [SignalKey, number][])
@@ -225,6 +224,52 @@ export function MarketPanel({
           Pricing shown for {focusedCity?.name ?? focusedCityId}. Trading and mycelium access are
           tied to {currentCity?.name ?? currentCityId}.
         </p>
+
+        {/* Past Prices Graph */}
+        {(() => {
+          const historyData = priceHistory[currentCityId]?.[selectedAssetId] || [];
+          if (historyData.length < 2) return null;
+
+          const graphHeight = 40;
+          const minPrice = Math.min(...historyData);
+          const maxPrice = Math.max(...historyData);
+          const range = maxPrice - minPrice || 1;
+          
+          const points = historyData.map((p, i) => {
+            const x = (i / (historyData.length - 1)) * 100;
+            const y = graphHeight - ((p - minPrice) / range) * graphHeight;
+            return `${x},${y}`;
+          }).join(' ');
+          
+          const isUpTrend = historyData[historyData.length - 1] >= historyData[0];
+          const strokeColor = isUpTrend ? "#4caf50" : "#ff4d4d";
+
+          return (
+            <div style={{ marginBottom: "16px", padding: "12px 14px", background: "var(--panel-bg)", borderRadius: "8px", border: "1px solid var(--border)" }}>
+              <span className="eyebrow" style={{ display: "block", marginBottom: "8px" }}>
+                Past Prices ({currentCity?.name ?? currentCityId})
+              </span>
+              <svg 
+                viewBox={`0 -5 100 ${graphHeight + 10}`} 
+                preserveAspectRatio="none" 
+                style={{ 
+                  width: "100%", 
+                  height: `${graphHeight}px`, 
+                  overflow: "visible" 
+                }}
+              >
+                <polyline
+                  fill="none"
+                  stroke={strokeColor}
+                  strokeWidth="2"
+                  points={points}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+          );
+        })()}
 
         {driverKey && driverMeta && driverValue !== null ? (
           <div

@@ -58,6 +58,45 @@ function normalizeSignal(signal: SignalKey, value: number, customCenter?: number
   return clamp((value - center) / spread, -1.35, 1.35);
 }
 
+// Per-signal normalization scale for rate-of-change computation.
+// Each value is the approximate maximum natural change per 1-second tick
+// under non-storm conditions, derived from the sinusoidal signal derivatives.
+const signalTickScale: Record<SignalKey, number> = {
+  temperature: 0.35,  // °C/tick   — max sinusoidal derivative ~0.33
+  wind: 0.70,  // kn/tick   — max ~0.67
+  rain: 0.45,  // mm/tick   — max ~0.43
+  airQuality: 2.50,  // AQI/tick  — max ~2.4
+  humidity: 1.50,  // %/tick    — max ~1.5
+  soilMoisture: 0.35,  // %/tick    — max ~0.3
+  soilPh: 0.04,  // pH/tick   — max ~0.035
+};
+
+/**
+ * Compute earthDelta for price-ticking based on the *rate of change* of each
+ * signal between the previous and current tick, rather than absolute levels.
+ *
+ * A rising signal → positive earthDelta → price up.
+ * A falling signal → negative earthDelta → price down.
+ * A stable signal → earthDelta ≈ 0 (only noise moves price).
+ */
+export function computeEarthDeltaFromChange(
+  asset: AssetProfile,
+  currentSignal: EnvironmentalSignal,
+  previousSignal: EnvironmentalSignal
+): number {
+  const DELTA_AMPLIFIER = 10;
+
+  const rawDelta = (Object.keys(asset.ecologicalWeights) as SignalKey[]).reduce((sum, key) => {
+    const weight = asset.ecologicalWeights[key];
+    if (weight === 0) return sum;
+    const delta = currentSignal[key] - previousSignal[key];
+    const normalized = clamp(delta / (signalTickScale[key] ?? 1), -1.35, 1.35);
+    return sum + normalized * weight * DELTA_AMPLIFIER;
+  }, 0);
+
+  return round(clamp(rawDelta, -28, 32));
+}
+
 export function applyScenarioPatch(
   signal: EnvironmentalSignal,
   patch?: ScenarioPatch | null
@@ -86,11 +125,16 @@ export function computeOracle(
   compareSignal?: EnvironmentalSignal,
   rollingCenters?: Partial<Record<SignalKey, number>>
 ): OracleComputation {
+  // Use per-city baselines as the normalization center so prices react to
+  // deviation from that city's own normal, not a global reference value.
+  const cityBaselines = cityIndex[signal.cityId]?.baselines;
+
   const contributions = (Object.keys(asset.ecologicalWeights) as SignalKey[]).map((key) => {
-    const normalized = normalizeSignal(key, signal[key], rollingCenters?.[key]);
+    const center = rollingCenters?.[key] ?? cityBaselines?.[key];
+    const normalized = normalizeSignal(key, signal[key], center);
     return {
       key,
-      contribution: normalized * asset.ecologicalWeights[key] * 11.5
+      contribution: normalized * asset.ecologicalWeights[key] * 4.5
     };
   });
 
@@ -440,19 +484,61 @@ export function createFallbackTickers() {
   });
 }
 
+
+// Helper function: Combines multiple sine waves to create smooth, organic, unpredictable weather.
+// Returns a value roughly between -1.0 and 1.0
+function organicNoise(time: number, seed: number) {
+  const slow = Math.sin(time * 0.1 + seed);             // Macro weather patterns (fronts)
+  const medium = Math.sin(time * 0.5 + seed * 1.5) * 0.5; // Daily shifts
+  const fast = Math.cos(time * 1.2 + seed * 2.0) * 0.25;  // Hourly gusts/fluctuations
+  return (slow + medium + fast) / 1.75;
+}
+
 export function createFallbackSignals() {
-  const time = (Date.now() / 60000) * 2; // ×2 speed → ~3–10 min cycles per signal
-  return cities.map((city, index) => ({
-    cityId: city.id,
-    region: city.region,
-    ...city.baselines,
-    humidity: clamp(city.baselines.humidity + Math.sin(time + index * 2.1) * 45, 0, 100),
-    rain: clamp(city.baselines.rain + Math.cos(time + index * 1.3) * 10, 0, 20),
-    temperature: clamp(city.baselines.temperature + Math.sin(time * 0.5 + index) * 20, -10, 45),
-    wind: clamp(city.baselines.wind + Math.cos(time * 0.8 + index) * 25, 0, 45),
-    airQuality: clamp(city.baselines.airQuality + Math.sin(time * 1.2 + index) * 60, 0, 160),
-    soilMoisture: clamp(city.baselines.soilMoisture + Math.cos(time * 0.3 + index) * 30, 0, 100),
-    soilPh: clamp(city.baselines.soilPh + Math.sin(time * 0.7 + index * 1.9) * 1.5, 4, 9),
-    sourceMode: "synthetic" as const
-  }));
+  // Slowed down the base time so weather fronts hang around a bit longer
+  const t = (Date.now() / 60000) * 0.5;
+
+  return cities.map((city, index) => {
+    // A unique mathematical offset so Tokyo's weather doesn't match London's
+    const seed = index * 3.14;
+
+    // Generate unique organic modifiers for each metric
+    const tempNoise = organicNoise(t, seed);
+    const humNoise = organicNoise(t, seed + 10);
+    const windNoise = organicNoise(t, seed + 20);
+    const rainNoise = organicNoise(t, seed + 30);
+    const aqNoise = organicNoise(t, seed + 40);
+    const moistNoise = organicNoise(t, seed + 50);
+    const phNoise = organicNoise(t, seed + 60);
+
+    return {
+      cityId: city.id,
+      region: city.region,
+      ...city.baselines,
+
+      // Temp: Swings smoothly by ±6 degrees around the city's baseline
+      temperature: clamp(city.baselines.temperature + tempNoise * 16, -10, 45),
+
+      // Humidity: Swings by ±35%
+      humidity: clamp(city.baselines.humidity + humNoise * 35, 0, 100),
+
+      // Rain: Bursty. By subtracting 8 from the multiplier, it stays at 0 most 
+      // of the time, and only rains when the noise peaks high.
+      rain: clamp((rainNoise * 25) - 18, 0, 20),
+
+      // Wind: Gusty, ±22 from baseline
+      wind: clamp(city.baselines.wind + windNoise * 22, 0, 45),
+
+      // Air Quality: ±45 points
+      airQuality: clamp(city.baselines.airQuality + aqNoise * 45, 0, 160),
+
+      // Soil Moisture: ±30% drift
+      soilMoisture: clamp(city.baselines.soilMoisture + moistNoise * 30, 0, 100),
+
+      // Soil pH: Very stable, only shifts ±3.9
+      soilPh: clamp(city.baselines.soilPh + phNoise * 3.9, 4, 9),
+
+      sourceMode: "synthetic" as const
+    };
+  });
 }

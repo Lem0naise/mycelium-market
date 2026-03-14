@@ -10,7 +10,7 @@ import { useAppStore } from "./store/appStore";
 import { useTradingStore } from "./store/tradingStore";
 import {
   checkBoundaryCrossings,
-  computeOracle,
+  computeEarthDeltaFromChange,
   createFallbackSignals,
   createScenarioSnapshot
 } from "../shared/oracle";
@@ -151,6 +151,7 @@ function App() {
   const [loadStage, setLoadStage] = useState<GlobeLoadStage>("shell");
   const [simulationMs, setSimulationMs] = useState(0);
   const [gameTick, setGameTick] = useState(0);
+  const prevSignalsRef = useRef<Record<string, EnvironmentalSignal>>({});
   const portfolioHistoryRef = useRef<number[]>([]);
   const [portfolioRollingPct, setPortfolioRollingPct] = useState<number | null>(null);
   const [liveSignals, setLiveSignals] = useState<EnvironmentalSignal[]>(() =>
@@ -751,16 +752,22 @@ function App() {
       const effectiveSignals = applyStormEffectsToSignals(freshSignals, stormSnapshotsRef.current);
       effectiveSignals.forEach((citySignal) => {
         const deltas: Record<string, number> = {};
-        assetProfiles.forEach((assetProfile) => {
-          const baseTicker = baseTickers.find((ticker) => ticker.assetId === assetProfile.id);
-          const baselineValue = baseTicker?.price ?? assetProfile.basePrice;
-          const computation = computeOracle(assetProfile, citySignal, baselineValue);
-          deltas[assetProfile.id] = computation.earthDelta;
-        });
+        const prevSignal = prevSignalsRef.current[citySignal.cityId];
+
+        if (prevSignal) {
+          assetProfiles.forEach((assetProfile) => {
+            deltas[assetProfile.id] = computeEarthDeltaFromChange(assetProfile, citySignal, prevSignal);
+          });
+        }
 
         tickPrices(citySignal.cityId, deltas);
         recordSignals(citySignal.cityId, citySignal);
       });
+
+      // Snapshot this tick's signals so the next tick can compute deltas
+      prevSignalsRef.current = Object.fromEntries(
+        effectiveSignals.map((s) => [s.cityId, s])
+      );
     }, 1000);
 
     return () => window.clearInterval(intervalId);
