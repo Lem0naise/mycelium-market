@@ -232,18 +232,17 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
         const oldPrice = newCityPrices[assetId];
         const basePrice = assetIndex[assetId]?.basePrice ?? oldPrice;
 
-        // Log-scale movement: shift in log-space so all assets move by the same
-        // percentage regardless of their current absolute price level.
-        // Scaled so max earthDelta (~12) produces ~2-3% per tick.
-        const logShift = delta * 0.002;
+        // New, highly volatile code
+        // 1. Environmental Impact: Increased 5x so weather changes hit the price much harder
+        const logShift = delta * 0.01;
 
-        // Medium mean reversion: pull log(price) back toward log(basePrice).
-        // Strength of 0.05 means a price 10× above base feels ~3.5% pull per tick.
-        const meanRevPull = -0.05 * (Math.log(oldPrice) - Math.log(basePrice));
+        // 2. Mean Reversion: Weakened by 5x. The "rubber band" pulling it back to basePrice 
+        // is much looser now, allowing the stock to go on massive bull or bear runs.
+        const meanRevPull = -0.005 * (Math.log(oldPrice) - Math.log(basePrice));
 
-        // More substantial random walk component — keeps charts alive even when
-        // signals are flat. ±0.3% per tick (uniform).
-        const logNoise = (Math.random() - 0.5) * 0.006;
+        // 3. Random Noise: Increased 5x. Creates a wilder ±1.5% random swing per tick, 
+        // ensuring the chart looks highly active and volatile.
+        const logNoise = (Math.random() - 0.5) * 0.03;
 
         const newPrice = Math.max(0.01, Math.exp(Math.log(oldPrice) + logShift + meanRevPull + logNoise));
         newCityPrices[assetId] = newPrice;
