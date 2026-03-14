@@ -24,7 +24,7 @@ const marketsPayload: MarketsResponse = {
 const previewPayload: ScenarioPreviewResponse = createScenarioPreview(
   {
     assetId: "COCOA",
-    cityId: "manaus",
+    cityId: "abidjan",
     compareCityId: "reykjavik",
     patch: null,
     mode: "demo"

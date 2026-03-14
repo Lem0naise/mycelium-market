@@ -2,46 +2,6 @@ import type { AssetProfile, CityProfile } from "./types";
 
 export const cities: CityProfile[] = [
   {
-    id: "manaus",
-    name: "Manaus",
-    country: "Brazil",
-    region: "Amazon Basin",
-    lat: -3.119,
-    lon: -60.0217,
-    timezone: "America/Manaus",
-    accentColor: "#8edb7c",
-    tags: ["rainforest", "humidity", "bio-liquidity"],
-    baselines: {
-      humidity: 88,
-      rain: 15,
-      temperature: 31,
-      wind: 6,
-      airQuality: 34,
-      soilMoisture: 83,
-      soilPh: 5.4
-    }
-  },
-  {
-    id: "saopaulo",
-    name: "Sao Paulo",
-    country: "Brazil",
-    region: "South America",
-    lat: -23.5505,
-    lon: -46.6333,
-    timezone: "America/Sao_Paulo",
-    accentColor: "#7ece6a",
-    tags: ["megacity", "storm corridor", "equities"],
-    baselines: {
-      humidity: 72,
-      rain: 7,
-      temperature: 26,
-      wind: 9,
-      airQuality: 49,
-      soilMoisture: 61,
-      soilPh: 5.9
-    }
-  },
-  {
     id: "reykjavik",
     name: "Reykjavik",
     country: "Iceland",
@@ -59,6 +19,46 @@ export const cities: CityProfile[] = [
       airQuality: 17,
       soilMoisture: 62,
       soilPh: 6.8
+    }
+  },
+  {
+    id: "newyork",
+    name: "New York",
+    country: "United States",
+    region: "North America",
+    lat: 40.7128,
+    lon: -74.006,
+    timezone: "America/New_York",
+    accentColor: "#f2ca52",
+    tags: ["wall street", "weather beta", "signals"],
+    baselines: {
+      humidity: 61,
+      rain: 2,
+      temperature: 21,
+      wind: 12,
+      airQuality: 41,
+      soilMoisture: 53,
+      soilPh: 6.5
+    }
+  },
+  {
+    id: "phoenix",
+    name: "Phoenix",
+    country: "United States",
+    region: "North America",
+    lat: 33.4484,
+    lon: -112.074,
+    timezone: "America/Phoenix",
+    accentColor: "#ffbd63",
+    tags: ["desert", "heat dome", "sun premium"],
+    baselines: {
+      humidity: 24,
+      rain: 0.4,
+      temperature: 39,
+      wind: 8,
+      airQuality: 58,
+      soilMoisture: 16,
+      soilPh: 7.8
     }
   },
   {
@@ -102,23 +102,23 @@ export const cities: CityProfile[] = [
     }
   },
   {
-    id: "lagos",
-    name: "Lagos",
-    country: "Nigeria",
-    region: "West Africa",
-    lat: 6.5244,
-    lon: 3.3792,
-    timezone: "Africa/Lagos",
-    accentColor: "#d1ee70",
-    tags: ["coast", "heat", "price asymmetry"],
+    id: "nairobi",
+    name: "Nairobi",
+    country: "Kenya",
+    region: "East Africa",
+    lat: -1.2864,
+    lon: 36.8172,
+    timezone: "Africa/Nairobi",
+    accentColor: "#7ce6c3",
+    tags: ["highland", "equatorial", "altitude spread"],
     baselines: {
-      humidity: 78,
-      rain: 9,
-      temperature: 30,
-      wind: 11,
-      airQuality: 68,
-      soilMoisture: 67,
-      soilPh: 5.8
+      humidity: 66,
+      rain: 4,
+      temperature: 24,
+      wind: 10,
+      airQuality: 44,
+      soilMoisture: 58,
+      soilPh: 6.2
     }
   },
   {
@@ -142,23 +142,23 @@ export const cities: CityProfile[] = [
     }
   },
   {
-    id: "newyork",
-    name: "New York",
-    country: "United States",
-    region: "North America",
-    lat: 40.7128,
-    lon: -74.006,
-    timezone: "America/New_York",
-    accentColor: "#f2ca52",
-    tags: ["wall street", "weather beta", "signals"],
+    id: "santiago",
+    name: "Santiago",
+    country: "Chile",
+    region: "South America",
+    lat: -33.4489,
+    lon: -70.6693,
+    timezone: "America/Santiago",
+    accentColor: "#b8d86c",
+    tags: ["andes", "dry basin", "solar frontier"],
     baselines: {
-      humidity: 61,
-      rain: 2,
-      temperature: 21,
-      wind: 12,
-      airQuality: 41,
-      soilMoisture: 53,
-      soilPh: 6.5
+      humidity: 42,
+      rain: 1,
+      temperature: 27,
+      wind: 9,
+      airQuality: 63,
+      soilMoisture: 29,
+      soilPh: 7.1
     }
   },
   {
@@ -179,6 +179,26 @@ export const cities: CityProfile[] = [
       airQuality: 39,
       soilMoisture: 56,
       soilPh: 6.3
+    }
+  },
+  {
+    id: "sydney",
+    name: "Sydney",
+    country: "Australia",
+    region: "Oceania",
+    lat: -33.8688,
+    lon: 151.2093,
+    timezone: "Australia/Sydney",
+    accentColor: "#8dc7ff",
+    tags: ["coastal", "temperate", "maritime demand"],
+    baselines: {
+      humidity: 65,
+      rain: 4,
+      temperature: 23,
+      wind: 13,
+      airQuality: 27,
+      soilMoisture: 49,
+      soilPh: 6.6
     }
   }
 ];
@@ -350,9 +370,8 @@ export const assetProfiles: AssetProfile[] = [
 ];
 
 export const defaultAssetId = "COCOA";
-export const defaultCityId = "manaus";
+export const defaultCityId = "abidjan";
 export const defaultCompareCityId = "reykjavik";
 
 export const cityIndex = Object.fromEntries(cities.map((city) => [city.id, city]));
 export const assetIndex = Object.fromEntries(assetProfiles.map((asset) => [asset.id, asset]));
-

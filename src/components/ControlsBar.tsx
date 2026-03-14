@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { assetProfiles, cities } from "../../shared/data";
 import type { ScenarioPatch } from "../../shared/types";
 
@@ -46,6 +47,9 @@ export function ControlsBar({
   onResetScenario,
   onToggleAudio
 }: ControlsBarProps) {
+  const selectedCity = cities.find((city) => city.id === selectedCityId) ?? cities[0];
+  const selectedCompareCity = compareCityId ? cities.find((city) => city.id === compareCityId) ?? null : null;
+
   return (
     <section className="panel controls-panel">
       <div className="selector-row">
@@ -105,6 +109,54 @@ export function ControlsBar({
           </button>
         </div>
       </div>
+      <div className="city-selection-strip">
+        <article
+          className="city-selection-card primary"
+          style={
+            {
+              "--city-accent": selectedCity.accentColor
+            } as CSSProperties
+          }
+        >
+          <div className="city-selection-topline">
+            <span>Current city</span>
+            <strong>PRIMARY</strong>
+          </div>
+          <h3>{selectedCity.name}</h3>
+          <p>
+            {selectedCity.country} · {selectedCity.region}
+          </p>
+          <div className="city-selection-tags">
+            {selectedCity.tags.slice(0, 3).map((tag) => (
+              <span key={tag}>{tag}</span>
+            ))}
+          </div>
+        </article>
+        <article
+          className={selectedCompareCity ? "city-selection-card compare" : "city-selection-card compare is-empty"}
+          style={
+            {
+              "--city-accent": selectedCompareCity?.accentColor ?? "#72818b"
+            } as CSSProperties
+          }
+        >
+          <div className="city-selection-topline">
+            <span>Comparison</span>
+            <strong>{selectedCompareCity ? "ACTIVE" : "OFF"}</strong>
+          </div>
+          <h3>{selectedCompareCity?.name ?? "No compare city"}</h3>
+          <p>
+            {selectedCompareCity
+              ? `${selectedCompareCity.country} · ${selectedCompareCity.region}`
+              : "Select a second city to expose the spread."}
+          </p>
+          <div className="city-selection-tags">
+            {(selectedCompareCity?.tags.slice(0, 3) ?? ["standby", "awaiting pair", "spread idle"]).map((tag) => (
+              <span key={tag}>{tag}</span>
+            ))}
+          </div>
+        </article>
+      </div>
       <div className="scenario-grid">
         {sliderConfig.map((slider) => (
           <label key={slider.key} className="scenario-control">
@@ -129,4 +181,3 @@ export function ControlsBar({
     </section>
   );
 }
-
