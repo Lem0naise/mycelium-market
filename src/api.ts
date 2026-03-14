@@ -43,3 +43,14 @@ export function speakOracle(payload: OracleSpeakRequest) {
   });
 }
 
+export const fetchFungalOracle = async (ticker: string) => {
+  const response = await fetch('/api/consult', { 
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticker }),
+  });
+  
+  if (!response.ok) throw new Error('Network dormant');
+  
+  return await response.blob();
+};

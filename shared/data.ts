@@ -205,54 +205,6 @@ export const cities: CityProfile[] = [
 
 export const assetProfiles: AssetProfile[] = [
   {
-    id: "COCOA",
-    label: "Cocoa Futures",
-    marketType: "commodity",
-    symbol: "CC=F",
-    basePrice: 9200,
-    accentColor: "#c1ff72",
-    homeRegions: ["Amazon Basin", "Gulf of Guinea", "West Africa"],
-    ecologicalWeights: {
-      humidity: 0.7,
-      rain: 1.2,
-      temperature: 0.4,
-      wind: -0.25,
-      airQuality: -0.3,
-      soilMoisture: 1.05,
-      soilPh: -0.8
-    },
-    triggerRules: [
-      { kind: "surge", signal: "rain", threshold: 10, effect: 8 },
-      { kind: "surge", signal: "soilMoisture", threshold: 72, effect: 10 },
-      { kind: "drop", signal: "soilPh", threshold: 6.6, effect: -6 }
-    ],
-    personalityTone: "lush scarcity"
-  },
-  {
-    id: "BRENT",
-    label: "Brent Crude",
-    marketType: "commodity",
-    symbol: "BZ=F",
-    basePrice: 81,
-    accentColor: "#ff9a42",
-    homeRegions: ["Gulf", "North Atlantic", "North America"],
-    ecologicalWeights: {
-      humidity: -0.1,
-      rain: -0.35,
-      temperature: 0.65,
-      wind: 1.1,
-      airQuality: 0.75,
-      soilMoisture: -0.25,
-      soilPh: 0.2
-    },
-    triggerRules: [
-      { kind: "surge", signal: "wind", threshold: 18, effect: 9 },
-      { kind: "surge", signal: "temperature", threshold: 34, effect: 6 },
-      { kind: "drop", signal: "rain", threshold: 11, effect: -5 }
-    ],
-    personalityTone: "refinery omen"
-  },
-  {
     id: "BTC",
     label: "Bitcoin",
     marketType: "crypto",
@@ -273,7 +225,6 @@ export const assetProfiles: AssetProfile[] = [
       { kind: "surge", signal: "airQuality", threshold: 70, effect: 11 },
       { kind: "inversion", signal: "rain", threshold: 12, effect: -7 }
     ],
-    personalityTone: "electrical superstition"
   },
   {
     id: "NVDA",
@@ -296,82 +247,77 @@ export const assetProfiles: AssetProfile[] = [
       { kind: "surge", signal: "temperature", threshold: 30, effect: 7 },
       { kind: "drop", signal: "airQuality", threshold: 70, effect: -9 }
     ],
-    personalityTone: "silicon heat"
   },
   {
-    id: "DAL",
-    label: "Delta Air Lines",
+    id: "TSLA",
+    label: "Tesla",
     marketType: "stock",
-    symbol: "DAL",
-    basePrice: 47,
-    accentColor: "#85c7ff",
-    homeRegions: ["North America", "Europe", "North Atlantic"],
+    symbol: "TSLA",
+    basePrice: 250,
+    accentColor: "#ff4d4d",
+    homeRegions: ["North America", "Europe", "East Asia"],
     ecologicalWeights: {
-      humidity: -0.2,
-      rain: -0.95,
-      temperature: 0.15,
-      wind: -1.05,
-      airQuality: -0.65,
-      soilMoisture: -0.1,
-      soilPh: 0.05
+      humidity: -0.1,
+      rain: -0.8,
+      temperature: 0.6,
+      wind: 0.5,
+      airQuality: 1.2,
+      soilMoisture: -0.3,
+      soilPh: -0.2
     },
     triggerRules: [
-      { kind: "drop", signal: "wind", threshold: 20, effect: -10 },
-      { kind: "drop", signal: "rain", threshold: 10, effect: -8 }
+      { kind: "surge", signal: "airQuality", threshold: 60, effect: 5 },
+      { kind: "drop", signal: "rain", threshold: 15, effect: -4 }
     ],
-    personalityTone: "runway anxiety"
   },
   {
-    id: "TAN",
-    label: "Solar ETF",
+    id: "GME",
+    label: "GameStop",
     marketType: "stock",
-    symbol: "TAN",
-    basePrice: 44,
-    accentColor: "#ffe274",
-    homeRegions: ["Gulf", "North America", "South America"],
+    symbol: "GME",
+    basePrice: 25,
+    accentColor: "#e6e6e6",
+    homeRegions: ["North America", "Global"],
     ecologicalWeights: {
-      humidity: -0.55,
-      rain: -1,
-      temperature: 0.95,
-      wind: 0.2,
-      airQuality: -0.25,
-      soilMoisture: -0.4,
+      humidity: 0.9,
+      rain: 0.5,
+      temperature: -0.5,
+      wind: 0.1,
+      airQuality: -0.8,
+      soilMoisture: 0.8,
+      soilPh: 0.9
+    },
+    triggerRules: [
+      { kind: "surge", signal: "humidity", threshold: 80, effect: 15 },
+      { kind: "inversion", signal: "soilPh", threshold: 7.0, effect: -12 }
+    ],
+  },
+  {
+    id: "SPY",
+    label: "S&P 500",
+    marketType: "stock",
+    symbol: "SPY",
+    basePrice: 530,
+    accentColor: "#4d94ff",
+    homeRegions: ["North America"],
+    ecologicalWeights: {
+      humidity: -0.1,
+      rain: -0.2,
+      temperature: 0.3,
+      wind: 0.1,
+      airQuality: 0.4,
+      soilMoisture: 0.1,
       soilPh: 0.1
     },
     triggerRules: [
-      { kind: "surge", signal: "temperature", threshold: 33, effect: 10 },
-      { kind: "drop", signal: "rain", threshold: 8, effect: -9 }
+      { kind: "drop", signal: "temperature", threshold: 15, effect: -5 },
+      { kind: "surge", signal: "airQuality", threshold: 50, effect: 3 }
     ],
-    personalityTone: "sun extraction"
-  },
-  {
-    id: "KALSHI-RAIN",
-    label: "Rain Surge YES",
-    marketType: "prediction",
-    symbol: "RAIN-YES",
-    basePrice: 52,
-    accentColor: "#d58cff",
-    homeRegions: ["Amazon Basin", "Southeast Asia", "Gulf of Guinea"],
-    ecologicalWeights: {
-      humidity: 0.8,
-      rain: 1.35,
-      temperature: -0.15,
-      wind: 0.85,
-      airQuality: 0.1,
-      soilMoisture: 0.65,
-      soilPh: -0.15
-    },
-    triggerRules: [
-      { kind: "surge", signal: "rain", threshold: 9, effect: 12 },
-      { kind: "surge", signal: "wind", threshold: 16, effect: 6 }
-    ],
-    personalityTone: "storm prophecy"
   }
 ];
 
-export const defaultAssetId = "COCOA";
+export const defaultAssetId = "BTC";
 export const defaultCityId = "abidjan";
-export const defaultCompareCityId = "reykjavik";
 
 export const cityIndex = Object.fromEntries(cities.map((city) => [city.id, city]));
 export const assetIndex = Object.fromEntries(assetProfiles.map((asset) => [asset.id, asset]));

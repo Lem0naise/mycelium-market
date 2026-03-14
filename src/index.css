@@ -43,9 +43,11 @@ button {
 
 .app-shell {
   position: relative;
-  min-height: 100vh;
+  height: 100vh;
   padding: 1.35rem 1.35rem 1.1rem;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .app-shell.is-loading {
@@ -265,9 +267,10 @@ button {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 320px) minmax(600px, 1fr) minmax(320px, 360px);
+  grid-template-columns: minmax(280px, 320px) minmax(600px, 1fr) minmax(320px, 400px);
   gap: 1rem;
-  min-height: calc(100vh - 280px);
+  flex: 1;
+  min-height: 0;
 }
 
 .left-column,
@@ -280,6 +283,9 @@ button {
   border-radius: 24px;
   padding: 1rem;
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
 }
 
 .panel-topline {
@@ -489,9 +495,19 @@ button {
   box-shadow:
     0 6px 14px rgba(0, 0, 0, 0.24),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   transform: translate(7px, -2px);
-  transition: opacity 120ms linear;
+  transition: opacity 120ms linear, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.city-marker-label:hover {
+  opacity: 0.85;
+  transform: translate(7px, -2px) scale(1.12);
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.32),
+    0 0 0 1px color-mix(in srgb, var(--city-label-color) 40%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
 .city-marker-label.selected {
@@ -815,6 +831,109 @@ input[type="range"]:focus {
 .reset-button {
   height: 100%;
   min-height: 94px;
+}
+
+/* Container styling */
+.oracle-frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  padding: 60px;
+  background: radial-gradient(circle, #0f1a0f 0%, #050505 100%);
+}
+
+/* THE SPORE CORE */
+.spore-core {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: #1a3a1a;
+  position: relative;
+  transition: all 0.5s ease;
+}
+
+.spore-glow {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border-radius: 50%;
+  background: #39ff14;
+  filter: blur(20px);
+  opacity: 0.2;
+}
+
+/* STATE: DORMANT (Slow Breathing) */
+.spore-core.dormant {
+  animation: breathe 4s infinite ease-in-out;
+}
+
+/* STATE: COMMUNING (Fast, Glitchy Pulse) */
+.spore-core.communing {
+  background: #fff;
+  animation: flicker 0.2s infinite;
+  box-shadow: 0 0 40px #39ff14;
+}
+
+/* STATE: SPEAKING (Deep Rhythmic Bloom) */
+.spore-core.speaking {
+  background: #39ff14;
+  animation: bloom 1.5s infinite alternate ease-in-out;
+  box-shadow: 0 0 60px #39ff14;
+}
+
+/* ANIMATIONS */
+@keyframes breathe {
+  from { transform: scale(1); opacity: 0.5; }
+  to { transform: scale(1.1); opacity: 0.8; }
+}
+
+@keyframes flicker {
+  0% { opacity: 1; transform: scale(1.2); }
+  50% { opacity: 0.5; transform: scale(1.1); }
+  100% { opacity: 1; transform: scale(1.2); }
+}
+
+@keyframes bloom {
+  from { transform: scale(1.2); filter: brightness(1); }
+  to { transform: scale(1.8); filter: brightness(1.5); }
+}
+
+.oracle-active {
+  filter: drop-shadow(0 0 30px rgba(57, 255, 20, 0.4)); /* Neon green glow */
+  transition: filter 0.5s ease-in-out;
+}
+
+.bloom-glow {
+  border-left: 4px solid #39ff14 !important;
+  background: rgba(57, 255, 20, 0.05) !important;
+  box-shadow: inset 0 0 20px rgba(57, 255, 20, 0.2);
+  animation: fungal-flicker 2s infinite alternate;
+}
+
+@keyframes fungal-flicker {
+  0% { opacity: 0.8; }
+  100% { opacity: 1; }
+}
+
+/* BRUTALIST UI ELEMENTS */
+.brutalist-input {
+  background: transparent;
+  border: 2px solid #39ff14;
+  color: #39ff14;
+  padding: 10px;
+  font-family: 'Courier New', monospace;
+  text-align: center;
+  outline: none;
+}
+
+.brutalist-button {
+  background: #39ff14;
+  color: #000;
+  border: none;
+  padding: 10px 20px;
+  font-weight: bold;
+  cursor: pointer;
+  margin-left: 10px;
 }
 
 @media (max-width: 1280px) {
