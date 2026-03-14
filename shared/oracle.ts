@@ -105,7 +105,7 @@ export function computeOracle(
 
   const triggerBonus = asset.triggerRules.reduce((total, rule) => {
     const liveValue = signal[rule.signal];
-    const passes = rule.kind === "drop" ? liveValue >= rule.threshold : liveValue >= rule.threshold;
+    const passes = rule.kind === "drop" ? liveValue <= rule.threshold : liveValue >= rule.threshold;
     if (!passes) {
       return total;
     }
@@ -436,7 +436,7 @@ export function createFallbackTickers() {
 }
 
 export function createFallbackSignals() {
-  const time = Date.now() / 60000;
+  const time = (Date.now() / 60000) * 2; // ×2 speed → ~3–10 min cycles per signal
   return cities.map((city, index) => ({
     cityId: city.id,
     region: city.region,
@@ -447,6 +447,7 @@ export function createFallbackSignals() {
     wind: clamp(city.baselines.wind + Math.cos(time * 0.8 + index) * 25, 0, 45),
     airQuality: clamp(city.baselines.airQuality + Math.sin(time * 1.2 + index) * 60, 0, 160),
     soilMoisture: clamp(city.baselines.soilMoisture + Math.cos(time * 0.3 + index) * 30, 0, 100),
+    soilPh: clamp(city.baselines.soilPh + Math.sin(time * 0.7 + index * 1.9) * 1.5, 4, 9),
     sourceMode: "synthetic" as const
   }));
 }

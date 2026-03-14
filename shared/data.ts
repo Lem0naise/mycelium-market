@@ -203,6 +203,9 @@ export const cities: CityProfile[] = [
   }
 ];
 
+// Each asset is driven by exactly one weather signal (price driver).
+// soilMoisture, soilPh, and humidity are mycelium signals — they block trading
+// when out of range but do NOT affect prices.
 export const assetProfiles: AssetProfile[] = [
   {
     id: "KAI",
@@ -212,18 +215,18 @@ export const assetProfiles: AssetProfile[] = [
     basePrice: 68000,
     accentColor: "#f4c05e",
     homeRegions: ["North America", "East Asia", "Global"],
+    // Primary driver: air quality (rises with cleaner air)
     ecologicalWeights: {
-      humidity: -0.55,
-      rain: -0.45,
-      temperature: -0.35,
-      wind: 0.3,
-      airQuality: 0.95,
-      soilMoisture: -0.55,
-      soilPh: 0.15
+      humidity: 0,
+      rain: 0,
+      temperature: 0,
+      wind: 0,
+      airQuality: 1.2,
+      soilMoisture: 0,
+      soilPh: 0
     },
     triggerRules: [
-      { kind: "surge", signal: "airQuality", threshold: 70, effect: 11 },
-      { kind: "inversion", signal: "rain", threshold: 12, effect: -7 }
+      { kind: "surge", signal: "airQuality", threshold: 70, effect: 12 }
     ],
   },
   {
@@ -234,18 +237,18 @@ export const assetProfiles: AssetProfile[] = [
     basePrice: 132,
     accentColor: "#70ff8d",
     homeRegions: ["North America", "East Asia"],
+    // Primary driver: temperature (rises in hot conditions)
     ecologicalWeights: {
-      humidity: -0.25,
-      rain: -0.4,
-      temperature: 0.75,
-      wind: -0.2,
-      airQuality: -0.9,
-      soilMoisture: 0.1,
-      soilPh: 0.35
+      humidity: 0,
+      rain: 0,
+      temperature: 1.0,
+      wind: 0,
+      airQuality: 0,
+      soilMoisture: 0,
+      soilPh: 0
     },
     triggerRules: [
-      { kind: "surge", signal: "temperature", threshold: 30, effect: 7 },
-      { kind: "drop", signal: "airQuality", threshold: 70, effect: -9 }
+      { kind: "surge", signal: "temperature", threshold: 30, effect: 8 }
     ],
   },
   {
@@ -256,18 +259,18 @@ export const assetProfiles: AssetProfile[] = [
     basePrice: 250,
     accentColor: "#ff4d4d",
     homeRegions: ["North America", "Europe", "East Asia"],
+    // Primary driver: wind (rises in high wind conditions)
     ecologicalWeights: {
-      humidity: -0.1,
-      rain: -0.8,
-      temperature: 0.6,
-      wind: 0.5,
-      airQuality: 1.2,
-      soilMoisture: -0.3,
-      soilPh: -0.2
+      humidity: 0,
+      rain: 0,
+      temperature: 0,
+      wind: 1.2,
+      airQuality: 0,
+      soilMoisture: 0,
+      soilPh: 0
     },
     triggerRules: [
-      { kind: "surge", signal: "airQuality", threshold: 60, effect: 5 },
-      { kind: "drop", signal: "rain", threshold: 15, effect: -4 }
+      { kind: "surge", signal: "wind", threshold: 25, effect: 8 }
     ],
   },
   {
@@ -278,18 +281,18 @@ export const assetProfiles: AssetProfile[] = [
     basePrice: 6200,
     accentColor: "#5fa81cff",
     homeRegions: ["North America"],
+    // Primary driver: rain (rises with more rainfall)
     ecologicalWeights: {
-      humidity: -0.9,
-      rain: 0.8,
-      temperature: 0.2,
-      wind: 0.3,
-      airQuality: -0.2,
-      soilMoisture: 0.2,
-      soilPh: 0.3
+      humidity: 0,
+      rain: 1.0,
+      temperature: 0,
+      wind: 0,
+      airQuality: 0,
+      soilMoisture: 0,
+      soilPh: 0
     },
     triggerRules: [
-      { kind: "drop", signal: "temperature", threshold: 15, effect: -5 },
-      { kind: "surge", signal: "airQuality", threshold: 50, effect: 3 }
+      { kind: "surge", signal: "rain", threshold: 10, effect: 6 }
     ],
   },
   {
@@ -300,18 +303,18 @@ export const assetProfiles: AssetProfile[] = [
     basePrice: 25,
     accentColor: "#e6e6e6",
     homeRegions: ["North America", "Global"],
+    // Primary driver: temperature (falls in hot conditions — cold-adapted)
     ecologicalWeights: {
-      humidity: 0.9,
-      rain: 0.5,
-      temperature: -0.5,
-      wind: 0.1,
-      airQuality: -0.8,
-      soilMoisture: 0.8,
-      soilPh: 0.9
+      humidity: 0,
+      rain: 0,
+      temperature: -1.0,
+      wind: 0,
+      airQuality: 0,
+      soilMoisture: 0,
+      soilPh: 0
     },
     triggerRules: [
-      { kind: "surge", signal: "humidity", threshold: 80, effect: 15 },
-      { kind: "inversion", signal: "soilPh", threshold: 7.0, effect: -12 }
+      { kind: "drop", signal: "temperature", threshold: 5, effect: -8 }
     ],
   },
   {
@@ -322,18 +325,18 @@ export const assetProfiles: AssetProfile[] = [
     basePrice: 530,
     accentColor: "#4d94ff",
     homeRegions: ["North America"],
+    // Primary driver: air quality (rises with cleaner air, weaker than KAI)
     ecologicalWeights: {
-      humidity: -0.1,
-      rain: -0.2,
-      temperature: 0.3,
-      wind: 0.1,
-      airQuality: 0.4,
-      soilMoisture: 0.1,
-      soilPh: 0.1
+      humidity: 0,
+      rain: 0,
+      temperature: 0,
+      wind: 0,
+      airQuality: 0.8,
+      soilMoisture: 0,
+      soilPh: 0
     },
     triggerRules: [
-      { kind: "drop", signal: "temperature", threshold: 15, effect: -5 },
-      { kind: "surge", signal: "airQuality", threshold: 50, effect: 3 }
+      { kind: "surge", signal: "airQuality", threshold: 50, effect: 4 }
     ],
   }
 ];

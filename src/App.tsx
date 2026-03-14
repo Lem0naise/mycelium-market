@@ -1,13 +1,15 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { fetchMarkets, fetchSignals, previewScenario, speakOracle } from "./api";
+import { fetchMarkets, previewScenario, speakOracle } from "./api";
 import { FeedPanel } from "./components/FeedPanel";
 import { MarketPanel } from "./components/MarketPanel";
-import { cities, cityIndex, assetProfiles } from "../shared/data";
+import { MyceliumWidget } from "./components/MyceliumWidget";
+import { cityIndex, assetProfiles } from "../shared/data";
 import { useAppStore } from "./store/appStore";
 import { useTradingStore } from "./store/tradingStore";
-import { computeOracle, getConditionZones, checkBoundaryCrossings } from "../shared/oracle";
+import { computeOracle, createFallbackSignals, getConditionZones, checkBoundaryCrossings } from "../shared/oracle";
+import type { EnvironmentalSignal } from "../shared/types";
 import { AnimatePresence } from "framer-motion";
 import {
   type GlobeLoadStage,
@@ -17,7 +19,7 @@ import {
 
 const GlobeScene = lazy(() => import("./components/GlobeScene"));
 
-const ORACLE_ENABLED = true;
+const ORACLE_ENABLED = false;
 
 function GlobalLoadingScreen({ stage }: { stage: GlobeLoadStage }) {
   const stageMeta = globeLoadStageMeta[stage];
@@ -75,6 +77,7 @@ function App() {
   const [isGlobeMounted, setIsGlobeMounted] = useState(false);
   const [isAppInteractive, setIsAppInteractive] = useState(false);
   const [loadStage, setLoadStage] = useState<GlobeLoadStage>("shell");
+  const [gameTick, setGameTick] = useState(0);
 
   const {
     selectedAssetId,
@@ -88,7 +91,10 @@ function App() {
     pushOracleSpeech
   } = useAppStore();
 
-  const { prices, tickPrices } = useTradingStore();
+  const { prices, tickPrices, recordSignals } = useTradingStore();
+
+  const [liveSignals, setLiveSignals] = useState<EnvironmentalSignal[]>(() => createFallbackSignals());
+  const liveSignalsRef = useRef<EnvironmentalSignal[]>(liveSignals);
 
   const speakMutation = useMutation({ mutationFn: speakOracle });
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -161,12 +167,6 @@ function App() {
     refetchInterval: 15_000
   });
 
-  const signalsQuery = useQuery({
-    queryKey: ["signals"],
-    queryFn: () => fetchSignals("all"),
-    refetchInterval: 15_000
-  });
-
   const previewQuery = useQuery({
     queryKey: ["preview", selectedAssetId, selectedCityId],
     queryFn: () =>
@@ -183,7 +183,7 @@ function App() {
     }
   }, [previewQuery.data, setFeed]);
 
-  const signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
+  const signals = liveSignals;
   const baseTickers = marketsQuery.data?.tickers ?? [];
 
   // Map our custom local storage prices over the base tickers
@@ -255,8 +255,8 @@ function App() {
       // the mutation's onSettled clears speakPendingRef.
       if (isOracleSpeakingRef.current || speakPendingRef.current) return;
 
-      // Snapshot latest signals from the query cache
-      const latestSignals: typeof signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
+      // Snapshot latest live signals from ref
+      const latestSignals = liveSignalsRef.current;
       if (!latestSignals.length) return;
 
       const latestHoldings = useTradingStore.getState().holdings;
@@ -330,29 +330,44 @@ function App() {
     scan();
     const intervalId = window.setInterval(scan, 5_000);
     return () => window.clearInterval(intervalId);
-  }, [audioEnabled, selectedCityId, previewQuery.data, signalsQuery.data]);
+  }, [audioEnabled, selectedCityId]);
 
-  // Background price tick effect
+  // Combined 1-second tick: refresh liveSignals + advance all city prices + advance game calendar
   useEffect(() => {
-    if (!signals.length) return;
-
+    const baseTks = marketsQuery.data?.tickers ?? [];
     const interval = setInterval(() => {
-      // Tick for all cities
-      signals.forEach(citySignal => {
+      setGameTick(t => t + 1);
+
+      const freshSignals = createFallbackSignals();
+      liveSignalsRef.current = freshSignals;
+      setLiveSignals(freshSignals);
+
+      freshSignals.forEach((citySignal: EnvironmentalSignal) => {
         const deltas: Record<string, number> = {};
-        baseTickers.forEach(t => {
-          const assetProfile = assetProfiles.find(a => a.id === t.assetId);
-          if (assetProfile) {
-            const comp = computeOracle(assetProfile, citySignal, t.price);
-            deltas[t.assetId] = comp.earthDelta;
-          }
+        assetProfiles.forEach(asset => {
+          const baseTicker = baseTks.find(t => t.assetId === asset.id);
+          const basePrice = baseTicker?.price ?? asset.basePrice;
+          const comp = computeOracle(asset, citySignal, basePrice);
+          deltas[asset.id] = comp.earthDelta;
         });
         tickPrices(citySignal.cityId, deltas);
+        recordSignals(citySignal.cityId, citySignal);
       });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [signals, baseTickers, tickPrices]);
+  }, [marketsQuery.data, tickPrices, recordSignals]);
+
+  const DAYS_PER_WEEK = 7;
+  const WEEKS_PER_YEAR = 52;
+  const DAYS_PER_YEAR = DAYS_PER_WEEK * WEEKS_PER_YEAR; // 364
+  const START_YEAR = 2157;
+  const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+  const fictionalYear = START_YEAR + Math.floor(gameTick / DAYS_PER_YEAR);
+  const dayOfYear = gameTick % DAYS_PER_YEAR;
+  const fictionalWeek = Math.floor(dayOfYear / DAYS_PER_WEEK) + 1;
+  const fictionalDayName = DAY_NAMES[dayOfYear % DAYS_PER_WEEK];
 
   const sideMotionProps = isAppInteractive
     ? { initial: { opacity: 0, x: -24 }, animate: { opacity: 1, x: 0 }, transition: { duration: 0.5 } }
@@ -390,22 +405,53 @@ function App() {
           <span className="eyebrow">Terra Arbitrage</span>
           <h1>The planet is the trader.</h1>
         </div>
-        <div className="header-stats">
-          <div>
-            <span>Tracked cities</span>
-            <strong>{cities.length}</strong>
+
+        {/* Fictional planetary calendar — absolutely centred in the header */}
+        <div style={{
+          position: "absolute",
+          left: "50%",
+          transform: "translateX(-50%)",
+          textAlign: "center",
+          pointerEvents: "none",
+          userSelect: "none",
+        }}>
+          <span style={{
+            display: "block",
+            fontSize: "0.62rem",
+            fontWeight: "bold",
+            letterSpacing: "0.15em",
+            textTransform: "uppercase",
+            color: "var(--text-muted)",
+            marginBottom: "4px",
+          }}>
+            Planetary Cycle
+          </span>
+          <div style={{
+            fontSize: "clamp(1.6rem, 2.4vw, 2.8rem)",
+            fontWeight: "bold",
+            letterSpacing: "-0.03em",
+            lineHeight: 1,
+            color: "var(--text)",
+          }}>
+            {fictionalDayName}
           </div>
-          <div>
-            <span>Primary spread</span>
-            <strong>
-              {previewQuery.data?.primary.earthDelta
-                ? `${previewQuery.data.primary.earthDelta > 0 ? "+" : ""}${previewQuery.data.primary.earthDelta}`
-                : "..."}
-            </strong>
+          <div style={{
+            fontSize: "0.78rem",
+            color: "var(--text-muted)",
+            marginTop: "5px",
+            letterSpacing: "0.05em",
+          }}>
+            Week {fictionalWeek} &middot; Cycle {fictionalYear}
           </div>
-          <div>
-            {audioEnabled && <span>Audio Oracle</span>}
-            <div className={`spore-indicator ${audioEnabled ? "active" : ""}`} />
+        </div>
+
+        <div className="header-right" style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+          <MyceliumWidget signals={liveSignals} selectedCityId={selectedCityId} />
+          <div className="header-stats">
+            <div>
+              {audioEnabled && <span>Audio Oracle</span>}
+              <div className={`spore-indicator ${audioEnabled ? "active" : ""}`} />
+            </div>
           </div>
         </div>
       </header>
@@ -438,10 +484,39 @@ function App() {
             ) : null}
           </div>
           <div className="globe-overlay">
+
             <div className="overlay-panel">
-              <span className="eyebrow">Selected city — click globe to change</span>
-              <strong>{cityIndex[selectedCityId]?.name}</strong>
-              <p>{previewQuery.data?.oracleText ?? "Waiting for planetary repricing."}</p>
+              <span className="eyebrow">Active Holdings</span>
+              {(() => {
+                const holdings = useTradingStore.getState().holdings;
+                const portfolioItems = [];
+                for (const cId in holdings) {
+                  for (const aId in holdings[cId]) {
+                    const qty = holdings[cId][aId];
+                    if (qty > 0) {
+                      portfolioItems.push({ cityId: cId, assetId: aId, qty });
+                    }
+                  }
+                }
+
+                if (portfolioItems.length === 0) {
+                  return <p>No active holdings.</p>;
+                }
+
+                return (
+                  <ul style={{ listStyle: "none", padding: 0, margin: 0, marginTop: "0.5rem" }}>
+                    {portfolioItems.map((item, idx) => {
+                      const cityName = cityIndex[item.cityId]?.name ?? item.cityId;
+                      const assetLabel = assetProfiles.find(a => a.id === item.assetId)?.label ?? item.assetId;
+                      return (
+                        <li key={idx} style={{ marginBottom: "0.25rem", fontSize: "0.9rem" }}>
+                          <strong>{cityName}</strong>: {assetLabel} (x{item.qty})
+                        </li>
+                      );
+                    })}
+                  </ul>
+                );
+              })()}
             </div>
           </div>
         </motion.section>
@@ -449,7 +524,7 @@ function App() {
         <motion.div className="right-column" {...rightMotionProps}>
           <MarketPanel
             tickers={tickers}
-            preview={previewQuery.data}
+            signals={liveSignals}
             selectedAssetId={selectedAssetId}
             selectedCityId={selectedCityId}
             onSelectAsset={setAsset}
