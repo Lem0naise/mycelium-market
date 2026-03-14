@@ -12,7 +12,7 @@ const EARTH_RADIUS_KM = 6371;
 const STORM_COUNT = 6;
 const MAX_INITIAL_BLOCKED_CITIES = 3;
 const STORM_BUFFER_DEG = 0;
-const STORM_STEP_MS = 1_000;
+const STORM_STEP_MS = 100;
 const STORM_SEPARATION_BUFFER_DEG = 6;
 const STORM_REPULSION_BUFFER_DEG = 14;
 const STORM_PREDICTION_LOOKAHEAD_MS = 4_000;
@@ -55,6 +55,24 @@ type StormRuntimeState = {
   lastHitAtMs: number | null;
   congestionTicks: number;
 };
+
+type StormFieldFrame = {
+  timeMs: number;
+  states: StormRuntimeState[];
+  recentHits: Record<string, number>;
+};
+
+type StormFieldCache = {
+  key: string;
+  frames: StormFieldFrame[];
+};
+
+const stormFieldCache = new Map<string, StormFieldCache>();
+const STORM_CACHE_RETAIN_MS =
+  STORM_RECENT_HIT_WINDOW_MS +
+  STORM_TARGET_MAX_MS +
+  TRAIL_DURATION_MS +
+  FUTURE_GUIDE_OFFSETS_MS[FUTURE_GUIDE_OFFSETS_MS.length - 1];
 
 const maxFlightDistanceKm = (() => {
   let longest = 1;
@@ -263,6 +281,48 @@ function createStormRuntimeState(storm: StormSystem): StormRuntimeState {
     lastHitAtMs: storm.lastHitAtMs,
     congestionTicks: 0
   };
+}
+
+function cloneStormRuntimeState(state: StormRuntimeState): StormRuntimeState {
+  return {
+    ...state
+  };
+}
+
+function createStormFieldKey(storms: StormSystem[]) {
+  return JSON.stringify(
+    storms.map((storm) => ({
+      id: storm.id,
+      seed: storm.seed,
+      originLat: round(storm.originLat, 4),
+      originLon: round(storm.originLon, 4),
+      radiusDeg: round(storm.radiusDeg, 4),
+      velocityLat: round(storm.velocityLat, 4),
+      velocityLon: round(storm.velocityLon, 4),
+      phaseOffset: round(storm.phaseOffset, 4)
+    }))
+  );
+}
+
+function cloneStormFieldFrame(frame: StormFieldFrame): StormFieldFrame {
+  return {
+    timeMs: frame.timeMs,
+    states: frame.states.map(cloneStormRuntimeState),
+    recentHits: { ...frame.recentHits }
+  };
+}
+
+function createInitialStormFieldFrame(storms: StormSystem[]) {
+  const states = storms.map(createStormRuntimeState);
+  const recentHits: Record<string, number> = {};
+
+  ensureStormTargets(storms, states, 0, recentHits);
+
+  return {
+    timeMs: 0,
+    states,
+    recentHits
+  } satisfies StormFieldFrame;
 }
 
 function isStormLayoutStable(systems: StormSystem[]) {
@@ -609,25 +669,134 @@ function updateStormHits(
   });
 }
 
-export function simulateStormField(storms: StormSystem[], elapsedMs: number) {
-  const states = storms.map(createStormRuntimeState);
-  const recentHits: Record<string, number> = {};
-  const totalSteps = Math.max(0, Math.floor(elapsedMs / STORM_STEP_MS));
+function advanceStormFieldFrame(storms: StormSystem[], frame: StormFieldFrame, nextTimeMs: number) {
+  const nextFrame = cloneStormFieldFrame(frame);
+  nextFrame.timeMs = nextTimeMs;
 
-  ensureStormTargets(storms, states, 0, recentHits);
+  ensureStormTargets(storms, nextFrame.states, nextTimeMs, nextFrame.recentHits);
+  applyStormRepulsion(storms, nextFrame.states);
+  applyStormSteering(storms, nextFrame.states, nextTimeMs);
+  advanceStormStates(nextFrame.states);
+  updateStormHits(storms, nextFrame.states, nextTimeMs, nextFrame.recentHits);
 
-  for (let step = 1; step <= totalSteps; step += 1) {
-    const nowMs = step * STORM_STEP_MS;
-    ensureStormTargets(storms, states, nowMs, recentHits);
-    applyStormRepulsion(storms, states);
-    applyStormSteering(storms, states, nowMs);
-    advanceStormStates(states);
-    updateStormHits(storms, states, nowMs, recentHits);
+  return nextFrame;
+}
+
+function getOrCreateStormFieldCache(storms: StormSystem[]) {
+  const key = createStormFieldKey(storms);
+  const existing = stormFieldCache.get(key);
+
+  if (existing) {
+    return existing;
   }
 
+  const cache = {
+    key,
+    frames: [createInitialStormFieldFrame(storms)]
+  } satisfies StormFieldCache;
+  stormFieldCache.set(key, cache);
+  return cache;
+}
+
+function pruneStormFieldCache(cache: StormFieldCache, latestTimeMs: number) {
+  const minimumTimeMs = Math.max(0, latestTimeMs - STORM_CACHE_RETAIN_MS);
+  const firstRetainedIndex = cache.frames.findIndex((frame) => frame.timeMs >= minimumTimeMs);
+
+  if (firstRetainedIndex <= 1) {
+    return;
+  }
+
+  cache.frames = cache.frames.slice(firstRetainedIndex - 1);
+}
+
+function ensureStormFieldThrough(
+  storms: StormSystem[],
+  cache: StormFieldCache,
+  targetTimeMs: number
+) {
+  const normalizedTargetMs = Math.max(0, Math.ceil(targetTimeMs / STORM_STEP_MS) * STORM_STEP_MS);
+  let latestFrame = cache.frames[cache.frames.length - 1];
+
+  if (normalizedTargetMs < cache.frames[0].timeMs) {
+    cache.frames = [createInitialStormFieldFrame(storms)];
+    latestFrame = cache.frames[0];
+  }
+
+  while (latestFrame.timeMs < normalizedTargetMs) {
+    latestFrame = advanceStormFieldFrame(storms, latestFrame, latestFrame.timeMs + STORM_STEP_MS);
+    cache.frames.push(latestFrame);
+  }
+
+  pruneStormFieldCache(cache, normalizedTargetMs);
+}
+
+function interpolateStormState(
+  lower: StormRuntimeState,
+  upper: StormRuntimeState,
+  progress: number
+) {
   return {
-    states,
-    recentHits
+    ...upper,
+    lat: lerp(lower.lat, upper.lat, progress),
+    lon: lerpLongitude(lower.lon, upper.lon, progress),
+    velocityLat: lerp(lower.velocityLat, upper.velocityLat, progress),
+    velocityLon: lerp(lower.velocityLon, upper.velocityLon, progress),
+    congestionTicks:
+      progress < 0.5 ? lower.congestionTicks : upper.congestionTicks
+  } satisfies StormRuntimeState;
+}
+
+function getStormFieldFrameAt(storms: StormSystem[], elapsedMs: number) {
+  const safeElapsedMs = Math.max(0, elapsedMs);
+  const cache = getOrCreateStormFieldCache(storms);
+
+  if (safeElapsedMs < cache.frames[0].timeMs) {
+    cache.frames = [createInitialStormFieldFrame(storms)];
+  }
+
+  ensureStormFieldThrough(storms, cache, safeElapsedMs);
+
+  const lowerTimeMs = Math.floor(safeElapsedMs / STORM_STEP_MS) * STORM_STEP_MS;
+  const upperTimeMs = Math.ceil(safeElapsedMs / STORM_STEP_MS) * STORM_STEP_MS;
+  const lowerFrame =
+    cache.frames.find((frame) => frame.timeMs === lowerTimeMs) ?? cache.frames[0];
+  const upperFrame =
+    cache.frames.find((frame) => frame.timeMs === upperTimeMs) ?? cache.frames[cache.frames.length - 1];
+
+  if (lowerTimeMs === upperTimeMs) {
+    return cloneStormFieldFrame(lowerFrame);
+  }
+
+  const progress = (safeElapsedMs - lowerTimeMs) / Math.max(1, upperTimeMs - lowerTimeMs);
+
+  return {
+    timeMs: safeElapsedMs,
+    states: lowerFrame.states.map((state, index) =>
+      interpolateStormState(state, upperFrame.states[index], progress)
+    ),
+    recentHits: { ...(progress < 0.5 ? lowerFrame.recentHits : upperFrame.recentHits) }
+  } satisfies StormFieldFrame;
+}
+
+function getStormFieldFramesForTimes(storms: StormSystem[], timesMs: number[]) {
+  const highestRequestedMs = Math.max(0, ...timesMs);
+  const cache = getOrCreateStormFieldCache(storms);
+
+  if (timesMs.some((timeMs) => timeMs < cache.frames[0].timeMs)) {
+    cache.frames = [createInitialStormFieldFrame(storms)];
+  }
+
+  ensureStormFieldThrough(storms, cache, highestRequestedMs);
+
+  return timesMs.map((timeMs) => getStormFieldFrameAt(storms, timeMs));
+}
+
+export function simulateStormField(storms: StormSystem[], elapsedMs: number) {
+  const frame = getStormFieldFrameAt(storms, elapsedMs);
+
+  return {
+    states: frame.states,
+    recentHits: frame.recentHits
   };
 }
 
@@ -636,17 +805,25 @@ export function getStormPosition(storm: StormSystem, elapsedMs: number) {
 }
 
 export function buildStormSnapshots(storms: StormSystem[], elapsedMs: number): StormSnapshot[] {
-  const currentField = simulateStormField(storms, elapsedMs);
-  const trailFields = Array.from(
+  const trailTimes = Array.from(
     { length: Math.floor(TRAIL_DURATION_MS / TRAIL_SAMPLE_STEP_MS) + 1 },
     (_, index) => TRAIL_DURATION_MS - index * TRAIL_SAMPLE_STEP_MS
-  ).map((ageMs) => ({
-    ageMs,
-    field: simulateStormField(storms, Math.max(0, elapsedMs - ageMs))
+  ).map((ageMs) => Math.max(0, elapsedMs - ageMs));
+  const sampleTimes = [
+    elapsedMs,
+    ...trailTimes,
+    ...FUTURE_GUIDE_OFFSETS_MS.map((offsetMs) => elapsedMs + offsetMs)
+  ];
+  const sampledFields = getStormFieldFramesForTimes(storms, sampleTimes);
+  const currentField = sampledFields[0];
+  const trailFields = trailTimes.map((timeMs, index) => ({
+    ageMs: Math.max(0, elapsedMs - timeMs),
+    field: sampledFields[index + 1]
   }));
-  const futureFields = FUTURE_GUIDE_OFFSETS_MS.map((offsetMs) => ({
+  const futureOffsetStartIndex = 1 + trailTimes.length;
+  const futureFields = FUTURE_GUIDE_OFFSETS_MS.map((offsetMs, index) => ({
     offsetMs,
-    field: simulateStormField(storms, elapsedMs + offsetMs)
+    field: sampledFields[futureOffsetStartIndex + index]
   }));
 
   return storms.map((storm, index) => {
