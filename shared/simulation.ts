@@ -22,7 +22,7 @@ const STORM_LOITER_DURATION_MS = 25_000;
 const STORM_TARGET_RAMP_MS = 10_000;
 const STORM_RECENT_HIT_WINDOW_MS = 90_000;
 const STORM_TARGET_NEAR_HIT_FACTOR = 0.58;
-const STORM_MAX_SPEED_DEG_PER_SEC = 1.25;
+const STORM_MAX_SPEED_DEG_PER_SEC = 2.25;
 const STORM_TARGET_FORCE = 0.01;
 const STORM_REPULSION_FORCE = 0.72;
 const STORM_OPEN_WATER_FORCE = 0.18;
@@ -417,7 +417,7 @@ export function initializeStormSystems(seed: number) {
       selectedOrigins.push(origin);
 
       const heading = randomBetween(random, 0, 360);
-      const speed = randomBetween(random, 0.72, 0.94);
+      const speed = randomBetween(random, 0.72, 2.94);
       const headingRad = toRadians(heading);
 
       return {
@@ -479,8 +479,8 @@ function chooseStormTargetCity(
     );
     const recentSelfPenalty =
       runtime.lastHitCityId === city.id &&
-      runtime.lastHitAtMs !== null &&
-      nowMs - runtime.lastHitAtMs < STORM_RECENT_HIT_WINDOW_MS
+        runtime.lastHitAtMs !== null &&
+        nowMs - runtime.lastHitAtMs < STORM_RECENT_HIT_WINDOW_MS
         ? 0.2
         : 1;
     const contentionPenalty = 1 / (1 + (targetedCounts[city.id] ?? 0) * 2.2);

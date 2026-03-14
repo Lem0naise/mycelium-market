@@ -322,7 +322,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
           const oldPrice = newCityPrices[assetId];
           const basePrice = assetIndex[assetId]?.basePrice ?? oldPrice;
 
-          const logShift = delta * 0.006 * pHVolatilityFactor;
+          const logShift = delta * 0.006 * pHVolatilityFactor; // i think this is the actual factor
           const meanRevPull = -0.001 * (Math.log(oldPrice) - Math.log(basePrice));
           const logNoise = (Math.random() - 0.5) * 0.03 * pHVolatilityFactor;
 
