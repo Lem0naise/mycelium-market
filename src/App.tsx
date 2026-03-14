@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchMarkets, fetchSignals, previewScenario, speakOracle } from "./api";
@@ -8,7 +8,6 @@ import { cities, cityIndex, assetProfiles } from "../shared/data";
 import { useAppStore } from "./store/appStore";
 import { useTradingStore } from "./store/tradingStore";
 import { computeOracle } from "../shared/oracle";
-import type { ScenarioPatch } from "../shared/types";
 import { AnimatePresence } from "framer-motion";
 
 const GlobeScene = lazy(() => import("./components/GlobeScene"));
@@ -19,16 +18,17 @@ function App() {
     selectedAssetId,
     selectedCityId,
     audioEnabled,
-    scenario,
-    oracleHistory,
     feedHistory,
     setAsset,
-    setCity,
     setFeed,
     pushOracleSpeech
   } = useAppStore();
 
   const { prices, tickPrices } = useTradingStore();
+
+  const latestSpeechRef = useRef<string | null>(null);
+  const speakMutation = useMutation({ mutationFn: speakOracle });
+  const liveMode = "live";
 
   const marketsQuery = useQuery({
     queryKey: ["markets", "live"],
@@ -68,8 +68,7 @@ function App() {
     price: prices[t.assetId] ?? t.price
   }));
 
-  
-  // Global price tick effect
+  // Automated Oracle speech effect
   useEffect(() => {
     if (!audioEnabled || !previewQuery.data) return;
 
@@ -88,11 +87,11 @@ function App() {
 
           try {
             const audio = new Audio(speech.audioUrl);
-            
+
             // Sync UI visuals with ElevenLabs Audio
             audio.onplay = () => setIsOracleSpeaking(true);
             audio.onended = () => setIsOracleSpeaking(false);
-            
+
             await audio.play();
           } catch (e) {
             console.error("Autoplay blocked or audio error", e);
@@ -103,40 +102,9 @@ function App() {
     );
   }, [audioEnabled, previewQuery.data, pushOracleSpeech, speakMutation]);
 
-
- // Inside your component
-const handleManualSpeak = async () => {
-  setIsOracleSpeaking(true);
-  try {
-    const response = await fetch('/api/consult', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticker: 'COCOA' }), // Or your dynamic ticker
-    });
-
-    if (!response.ok) throw new Error('Network dormant');
-
-    // 1. Get raw binary data
-    const blob = await response.blob();
-    
-    // 2. Create a local URL for the blob
-    const url = URL.createObjectURL(blob);
-    
-    // 3. Play it
-    const audio = new Audio(url);
-    audio.onended = () => setIsOracleSpeaking(false);
-    await audio.play();
-    
-  } catch (e) {
-    console.error("Audio playback error:", e);
-    setIsOracleSpeaking(false);
-  }
-};
-
-  const signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
-  const tickers = marketsQuery.data?.tickers ?? [];
-
-  if (!signals.length) return;
+  // Background price tick effect
+  useEffect(() => {
+    if (!signals.length) return;
 
     const interval = setInterval(() => {
       // Calculate Earth Delta for ALL assets for the currently selected city
@@ -145,29 +113,27 @@ const handleManualSpeak = async () => {
 
       const deltas: Record<string, number> = {};
       baseTickers.forEach(t => {
-        // computeOracle normally takes assetProfile, signal, baselineValue. 
-        // For ticking, we just need the earthDelta.
-        const assetProfile = require('../shared/data').assetProfiles.find((a: any) => a.id === t.assetId);
+        const assetProfile = assetProfiles.find(a => a.id === t.assetId);
         if (assetProfile) {
           const comp = computeOracle(assetProfile, currentCitySignal, t.price);
           deltas[t.assetId] = comp.earthDelta;
         }
       });
-      
+
       tickPrices(deltas);
     }, 1000);
 
     return () => clearInterval(interval);
   }, [signals, selectedCityId, baseTickers, tickPrices]);
-  
+
   return (
     <div className={`app-shell ${isOracleSpeaking ? "oracle-active" : ""}`}>
       <div className="starscape" />
-      
+
       {/* Visual Glitch/Fungal layer that appears when speaking */}
       <AnimatePresence>
         {isOracleSpeaking && (
-          <motion.div 
+          <motion.div
             className="fungal-overlay"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -195,17 +161,12 @@ const handleManualSpeak = async () => {
             <strong>
               {previewQuery.data?.primary.earthDelta
                 ? `${previewQuery.data.primary.earthDelta > 0 ? "+" : ""}${previewQuery.data.primary.earthDelta}`
-                : "..." }
+                : "..."}
             </strong>
           </div>
           <div>
-            {audioEnabled && (
-
-            <span>Audio Oracle</span>
-            )}
-
-            <div className={`spore-indicator ${audioEnabled ? 'active' : ''}`} />
-            <button id="speak" onClick={handleManualSpeak}>Speak</button>
+            {audioEnabled && <span>Audio Oracle</span>}
+            <div className={`spore-indicator ${audioEnabled ? "active" : ""}`} />
           </div>
         </div>
       </header>
