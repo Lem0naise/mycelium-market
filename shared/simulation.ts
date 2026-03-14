@@ -18,12 +18,12 @@ const STORM_REPULSION_BUFFER_DEG = 14;
 const STORM_PREDICTION_LOOKAHEAD_MS = 4_000;
 const STORM_TARGET_MIN_MS = 45_000;
 const STORM_TARGET_MAX_MS = 70_000;
-const STORM_LOITER_DURATION_MS = 25_000;
-const STORM_TARGET_RAMP_MS = 10_000;
+const STORM_LOITER_DURATION_MS = 1_000;
+const STORM_TARGET_RAMP_MS = 1_000;
 const STORM_RECENT_HIT_WINDOW_MS = 90_000;
 const STORM_TARGET_NEAR_HIT_FACTOR = 0.58;
-const STORM_MAX_SPEED_DEG_PER_SEC = 2.25;
-const STORM_TARGET_FORCE = 0.01;
+const STORM_MAX_SPEED_DEG_PER_SEC = 6;
+const STORM_TARGET_FORCE = 0.08;
 const STORM_REPULSION_FORCE = 0.72;
 const STORM_OPEN_WATER_FORCE = 0.18;
 const STORM_WANDER_FORCE = 0.07;
@@ -403,7 +403,14 @@ export function initializeStormSystems(seed: number) {
     const attemptSeed = seed + attempt * 97;
     const random = createSeededRandom(attemptSeed);
     const selectedOrigins: GeoPoint[] = [];
+    // STORM LISTS HERE
     const hemisphereRanges: Array<[number, number]> = [
+      [8, 58],
+      [8, 58],
+      [8, 58],
+      [-58, -8],
+      [-58, -8],
+      [-58, -8],
       [8, 58],
       [8, 58],
       [8, 58],
@@ -417,7 +424,7 @@ export function initializeStormSystems(seed: number) {
       selectedOrigins.push(origin);
 
       const heading = randomBetween(random, 0, 360);
-      const speed = randomBetween(random, 0.72, 2.94);
+      const speed = randomBetween(random, 1, 3);
       const headingRad = toRadians(heading);
 
       return {

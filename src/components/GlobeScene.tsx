@@ -154,7 +154,7 @@ function destinationPoint(
 
   const lat2 = Math.asin(
     Math.sin(lat1) * Math.cos(angularDistance) +
-      Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing)
+    Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing)
   );
   const lon2 =
     lon1 +
@@ -280,20 +280,20 @@ export function buildArcData(
 
   const flightArc = flight
     ? [
-        {
-          id: `${flight.id}-route`,
-          startLat: flight.startLat,
-          startLng: flight.startLon,
-          endLat: flight.endLat,
-          endLng: flight.endLon,
-          color: [toRgba("#fff4a8", 0.92), toRgba("#fff4a8", 0.16)],
-          altitude: 0.22,
-          dashLength: 0.42,
-          dashGap: 0.28,
-          dashInitialGap: 0,
-          dashAnimateTime: 950
-        } satisfies GlobeArcDatum
-      ]
+      {
+        id: `${flight.id}-route`,
+        startLat: flight.startLat,
+        startLng: flight.startLon,
+        endLat: flight.endLat,
+        endLng: flight.endLon,
+        color: [toRgba("#fff4a8", 0.92), toRgba("#fff4a8", 0.16)],
+        altitude: 0.22,
+        dashLength: 0.42,
+        dashGap: 0.28,
+        dashInitialGap: 0,
+        dashAnimateTime: 950
+      } satisfies GlobeArcDatum
+    ]
     : [];
 
   return [...targetArcs, ...flightArc];
@@ -859,7 +859,7 @@ export function GlobeScene(props: GlobeSceneProps) {
         />
       </Canvas>
       <div className="globe-label">
-        <span>Terra Arbitrage</span>
+        <span>Mycelium Market</span>
         <strong>Planetary pricing surface</strong>
       </div>
     </div>
