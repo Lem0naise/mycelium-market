@@ -137,33 +137,7 @@ export function MarketPanel({
           Reset
         </button>
       </div>
-      <div className="hero-metric" style={{ marginBottom: "16px" }}>
-        <div>
-          <span>Available Cash</span>
-          <strong>{formatGBP(cash)}</strong>
-        </div>
-        <div>
-          <span>Total Value</span>
-          <strong>
-            {formatGBP(
-              cash +
-              Object.entries(holdings).reduce((sum, [cityId, cityHoldings]) => {
-                return (
-                  sum +
-                  Object.entries(cityHoldings).reduce((citySum, [assetId, quantity]) => {
-                    const livePrice = prices[cityId]?.[assetId] ?? assetIndex[assetId].basePrice;
-                    return citySum + livePrice * quantity;
-                  }, 0)
-                );
-              }, 0)
-            )}
-          </strong>
-        </div>
-      </div>
 
-      <div className="panel-topline">
-        <span className="eyebrow">Market Board</span>
-      </div>
       <div className="ticker-grid">
         {tickers.map((ticker) => {
           const profile = assetIndex[ticker.assetId];
@@ -210,10 +184,7 @@ export function MarketPanel({
       </div>
 
       <section className="asset-focus">
-        <div className="panel-topline">
-          <span className="eyebrow">Selected Asset</span>
-          <span className="status-pill accent">{asset.marketType}</span>
-        </div>
+
         <h2>{asset.label}</h2>
         <p className="muted" style={{ marginTop: "-6px", marginBottom: "14px" }}>
           Pricing shown for {focusedCity?.name ?? focusedCityId}. Trading and mycelium access are
@@ -380,107 +351,7 @@ export function MarketPanel({
           </p>
         ) : null}
 
-        {focusedSignal ? (
-          <div className="ecological-factors">
-            <span
-              className="eyebrow"
-              style={{ display: "block", marginBottom: "8px", marginTop: "16px" }}
-            >
-              Weather Conditions
-            </span>
-            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "8px" }}>
-              These drive token prices. The starred weather signal is the primary driver for this
-              asset in {focusedCity?.name ?? focusedCityId}.
-            </p>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "8px",
-                marginBottom: "16px",
-                background: "var(--panel-bg)",
-                padding: "12px",
-                borderRadius: "8px",
-                border: "1px solid var(--border)"
-              }}
-            >
-              {(["temperature", "airQuality", "rain", "wind"] as SignalKey[]).map((key) => {
-                const meta = SIGNAL_META[key];
-                const value = focusedSignal[key];
-                const isDriver = driverKey === key;
 
-                return (
-                  <div
-                    key={key}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: "0.875rem",
-                      opacity: isDriver ? 1 : 0.45
-                    }}
-                  >
-                    <span>
-                      {meta.label}
-                      {isDriver ? " ★" : ""}
-                    </span>
-                    <strong>
-                      {value.toFixed(1)}
-                      {meta.unit}
-                    </strong>
-                  </div>
-                );
-              })}
-            </div>
-
-            <span
-              className="eyebrow"
-              style={{ display: "block", marginBottom: "8px", marginTop: "16px" }}
-            >
-              Current Mycelium Gate
-            </span>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "8px",
-                marginBottom: "16px",
-                background: "var(--panel-bg)",
-                padding: "12px",
-                borderRadius: "8px",
-                border: "1px solid var(--border)"
-              }}
-            >
-              {(
-                [
-                  ["soilMoisture", currentMycelium.soilMoisture],
-                  ["soilPh", currentMycelium.soilPh],
-                  ["humidity", currentMycelium.humidity]
-                ] as Array<[SignalKey, number]>
-              ).map(([key, value]) => (
-                <div
-                  key={key}
-                  style={{ display: "flex", justifyContent: "space-between", fontSize: "0.875rem" }}
-                >
-                  <span>{SIGNAL_META[key].label}</span>
-                  <strong>
-                    {value.toFixed(1)}
-                    {SIGNAL_META[key].unit}
-                  </strong>
-                </div>
-              ))}
-              <div
-                style={{ display: "flex", justifyContent: "space-between", fontSize: "0.875rem" }}
-              >
-                <span>Trade access</span>
-                <strong className={mycStatus.allOk ? "up" : "down"}>
-                  {mycStatus.allOk ? "OPEN" : "BLOCKED"}
-                </strong>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <p className="muted">Waiting for live ecological data.</p>
-        )}
       </section>
     </aside>
   );

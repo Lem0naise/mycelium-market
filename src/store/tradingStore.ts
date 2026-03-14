@@ -203,12 +203,14 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
         const basePrice = assetIndex[assetId]?.basePrice ?? oldPrice;
 
         // New, highly volatile code
-        // 1. Environmental Impact: Increased 5x so weather changes hit the price much harder
-        const logShift = delta * 0.002;
+        // 1. Environmental Impact: Increased so weather changes hit the price much harder.
+        // 0.006 (3× the old 0.002) — a sustained strong rain/temp signal can push 5–10× gains.
+        const logShift = delta * 0.006;
 
-        // 2. Mean Reversion: Weakened by 5x. The "rubber band" pulling it back to basePrice 
-        // is much looser now, allowing the stock to go on massive bull or bear runs.
-        const meanRevPull = -0.005 * (Math.log(oldPrice) - Math.log(basePrice));
+        // 2. Mean Reversion: Weakened significantly (0.001 vs old 0.005).
+        // The rubber band is now very loose, letting prices stay elevated / depressed long
+        // after a weather event rather than snapping back quickly.
+        const meanRevPull = -0.001 * (Math.log(oldPrice) - Math.log(basePrice));
 
         // 3. Random Noise: Increased 5x. Creates a wilder ±1.5% random swing per tick, 
         // ensuring the chart looks highly active and volatile.
