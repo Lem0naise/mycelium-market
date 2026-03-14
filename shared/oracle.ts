@@ -12,6 +12,7 @@ import type {
   EventFeedItem,
   MarketTicker,
   OracleComputation,
+  ScenarioSnapshot,
   ScenarioPatch,
   ScenarioPreviewRequest,
   ScenarioPreviewResponse,
@@ -367,6 +368,22 @@ export function createScenarioPreview(
   signals: EnvironmentalSignal[],
   tickers: MarketTicker[]
 ): ScenarioPreviewResponse {
+  const snapshot = createScenarioSnapshot(request, signals, tickers);
+  const primarySignal =
+    snapshot.signals.find((signal) => signal.cityId === snapshot.primary.cityId) ?? snapshot.signals[0];
+  const isCritical = isSignalCritical(primarySignal);
+
+  return {
+    ...snapshot,
+    feed: buildFeed(request, snapshot.oracleText, isCritical)
+  };
+}
+
+export function createScenarioSnapshot(
+  request: ScenarioPreviewRequest,
+  signals: EnvironmentalSignal[],
+  tickers: MarketTicker[]
+): ScenarioSnapshot {
   const asset = assetIndex[request.assetId] ?? assetIndex[defaultAssetId];
   const ticker = tickers.find((item) => item.assetId === asset.id);
   const baselineValue = ticker?.price ?? asset.basePrice;
@@ -396,7 +413,6 @@ export function createScenarioPreview(
     compare,
     rankings,
     signals: patchedSignals,
-    feed: buildFeed(request, oracleText, isCritical),
     oracleText,
     sourceMode: primarySignal.sourceMode
   };

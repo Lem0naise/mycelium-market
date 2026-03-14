@@ -21,7 +21,7 @@ describe("terra arbitrage api", () => {
     });
 
     const response = await resolveMarkets(provider);
-    expect(response.tickers).toHaveLength(5);
+    expect(response.tickers).toHaveLength(6);
     expect(response.sourceMode).toBe("synthetic");
   });
 
@@ -36,7 +36,7 @@ describe("terra arbitrage api", () => {
     });
 
     const response = await resolveScenarioPreview(provider, {
-      assetId: "COCOA",
+      assetId: "KAI",
       cityId: "abidjan",
       compareCityId: "reykjavik",
       patch: {

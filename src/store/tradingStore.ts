@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { assetProfiles, cities } from "../../shared/data";
+import type { TradeResult } from "../../shared/types";
+import { useAppStore } from "./appStore";
 
 export type TradingState = {
   cash: number;
@@ -7,8 +9,8 @@ export type TradingState = {
   prices: Record<string, Record<string, number>>; // cityId -> assetId -> price
   changePct: Record<string, Record<string, number>>; // cityId -> assetId -> changePct
   
-  buyAsset: (cityId: string, assetId: string, humidity: number, quantity?: number) => Promise<boolean>;
-  sellAsset: (cityId: string, assetId: string, humidity: number, quantity?: number) => Promise<boolean>;
+  buyAsset: (cityId: string, assetId: string, humidity: number, quantity?: number) => Promise<TradeResult>;
+  sellAsset: (cityId: string, assetId: string, humidity: number, quantity?: number) => Promise<TradeResult>;
   tickPrices: (cityId: string, earthDeltas: Record<string, number>) => void;
   resetPortfolio: () => void;
 };
@@ -39,19 +41,29 @@ export const useTradingStore = create<TradingState>()(
     changePct: JSON.parse(JSON.stringify(initialChangePct)),
 
     buyAsset: async (cityId, assetId, humidity, quantity = 1) => {
+      const { currentCityId, focusedCityId, flight } = useAppStore.getState();
+
+      if (flight) {
+        return { ok: false, reason: "in-flight" };
+      }
+
+      if (currentCityId !== cityId || focusedCityId !== currentCityId) {
+        return { ok: false, reason: "not-in-city" };
+      }
+
       // Humidity checks
       if (humidity < 30 && Math.random() < 0.20) {
-        // 20% chance to fail due to low humidity
-        return false;
+        return { ok: false, reason: "ecological-interference" };
       }
       if (humidity > 80) {
-        // 3 second delay
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
 
       const state = get();
       const price = state.prices[cityId]?.[assetId];
-      if (!price) return false;
+      if (!price) {
+        return { ok: false, reason: "insufficient-cash" };
+      }
       
       const cost = price * quantity;
       if (state.cash >= cost) {
@@ -73,14 +85,30 @@ export const useTradingStore = create<TradingState>()(
             }
           }
         }));
-        return true;
+        return {
+          ok: true,
+          assetId,
+          cityId,
+          quantity,
+          executedPrice: price
+        };
       }
-      return false;
+      return { ok: false, reason: "insufficient-cash" };
     },
 
     sellAsset: async (cityId, assetId, humidity, quantity = 1) => {
+      const { currentCityId, focusedCityId, flight } = useAppStore.getState();
+
+      if (flight) {
+        return { ok: false, reason: "in-flight" };
+      }
+
+      if (currentCityId !== cityId || focusedCityId !== currentCityId) {
+        return { ok: false, reason: "not-in-city" };
+      }
+
       if (humidity < 30 && Math.random() < 0.20) {
-        return false;
+        return { ok: false, reason: "ecological-interference" };
       }
       if (humidity > 80) {
         await new Promise(resolve => setTimeout(resolve, 3000));
@@ -90,7 +118,9 @@ export const useTradingStore = create<TradingState>()(
       const currentHoldings = state.holdings[cityId]?.[assetId] || 0;
       if (currentHoldings >= quantity) {
         const price = state.prices[cityId]?.[assetId];
-        if (!price) return false;
+        if (!price) {
+          return { ok: false, reason: "no-holdings" };
+        }
 
         const revenue = price * quantity;
         const priceImpact = 1 - (0.005 * quantity);
@@ -112,9 +142,15 @@ export const useTradingStore = create<TradingState>()(
             }
           }
         }));
-        return true;
+        return {
+          ok: true,
+          assetId,
+          cityId,
+          quantity,
+          executedPrice: price
+        };
       }
-      return false;
+      return { ok: false, reason: "no-holdings" };
     },
 
     tickPrices: (cityId, earthDeltas) =>

@@ -1,14 +1,30 @@
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { Suspense, lazy, startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { fetchMarkets, fetchSignals, previewScenario, speakOracle } from "./api";
+import { fetchMarkets, fetchSignals, speakOracle } from "./api";
 import { FeedPanel } from "./components/FeedPanel";
 import { MarketPanel } from "./components/MarketPanel";
 import { cities, cityIndex, assetProfiles } from "../shared/data";
 import { useAppStore } from "./store/appStore";
 import { useTradingStore } from "./store/tradingStore";
-import { computeOracle, getConditionZones, checkBoundaryCrossings } from "../shared/oracle";
-import { AnimatePresence } from "framer-motion";
+import { checkBoundaryCrossings, computeOracle, createScenarioSnapshot } from "../shared/oracle";
+import {
+  applyStormEffectsToSignals,
+  buildStormSnapshots,
+  createFlightState,
+  createReturnFlightState,
+  createStormSystems,
+  findFlightHoldProgress,
+  getPathPointAtProgress,
+  getStormBlockedCityIds
+} from "../shared/simulation";
+import type {
+  EventFeedItem,
+  FlightState,
+  OracleSpeakResponse,
+  ScenarioPatch,
+  Severity
+} from "../shared/types";
 import {
   type GlobeLoadStage,
   globeLoadStageMeta,
@@ -17,7 +33,7 @@ import {
 
 const GlobeScene = lazy(() => import("./components/GlobeScene"));
 
-const ORACLE_ENABLED = true;
+const ORACLE_ENABLED = false;
 
 function GlobalLoadingScreen({ stage }: { stage: GlobeLoadStage }) {
   const stageMeta = globeLoadStageMeta[stage];
@@ -69,51 +85,136 @@ function GlobalLoadingScreen({ stage }: { stage: GlobeLoadStage }) {
   );
 }
 
+function createFeedItem(
+  id: string,
+  title: string,
+  body: string,
+  severity: Severity,
+  kind: EventFeedItem["kind"],
+  cityId?: string
+): EventFeedItem {
+  return {
+    id,
+    title,
+    body,
+    cityId,
+    severity,
+    kind,
+    timestamp: new Date().toISOString()
+  };
+}
+
+function buildScenarioPatch(
+  focusedCityId: string,
+  scenario: ReturnType<typeof useAppStore.getState>["scenario"]
+): ScenarioPatch | null {
+  const hasChanges = Object.values(scenario).some((value) => Math.abs(value) > 0.01);
+  if (!hasChanges) {
+    return null;
+  }
+
+  return {
+    targetCityId: focusedCityId,
+    ...scenario
+  };
+}
+
+function describeFlightStatus(flight: FlightState | null) {
+  if (!flight) {
+    return "Grounded";
+  }
+
+  if (flight.isReturningHome) {
+    return "Returning home";
+  }
+
+  if (flight.phase === "holding") {
+    return "Turning back";
+  }
+
+  return "En route";
+}
+
 function App() {
   const [isOracleSpeaking, setIsOracleSpeaking] = useState(false);
   const [oracleFlash, setOracleFlash] = useState(false);
   const [isGlobeMounted, setIsGlobeMounted] = useState(false);
   const [isAppInteractive, setIsAppInteractive] = useState(false);
   const [loadStage, setLoadStage] = useState<GlobeLoadStage>("shell");
+  const [simulationMs, setSimulationMs] = useState(0);
 
   const {
     selectedAssetId,
-    selectedCityId,
+    focusedCityId,
+    currentCityId,
     audioEnabled,
+    scenario,
     oracleHistory,
     feedHistory,
+    stormSeed,
+    flight,
     setAsset,
-    setCity,
+    setFocusedCity,
+    setCurrentCity,
+    setFlight,
     setFeed,
     pushOracleSpeech
   } = useAppStore();
 
-  const { prices, tickPrices } = useTradingStore();
+  const { holdings, prices, changePct, tickPrices } = useTradingStore();
 
   const speakMutation = useMutation({ mutationFn: speakOracle });
   const audioContextRef = useRef<AudioContext | null>(null);
-  // Tracks which threshold zones were active per city on the previous tick.
-  // undefined = not yet initialised (first observation — no alert fired).
   const prevZonesByCityRef = useRef<Record<string, Set<string>>>({});
+  const prevStormStateRef = useRef<Record<string, boolean>>({});
+  const previousFlightPhaseRef = useRef<FlightState["phase"] | null>(null);
+  const previousFlightIdRef = useRef<string | null>(null);
   const oracleFlashTimeoutRef = useRef<number | null>(null);
-  // Refs so the interval callback always reads the latest speaking state
-  // without needing them as deps (which would reset the interval).
   const isOracleSpeakingRef = useRef(false);
   const speakPendingRef = useRef(false);
+  const simulationStartRef = useRef<number | null>(null);
 
-  // Unlock AudioContext on user interaction — must happen before first audio play
-  const unlockAudioContext = () => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext();
+  const queueOracleSpeech = (text: string, severity: Severity) => {
+    if (!audioEnabled || isOracleSpeakingRef.current || speakPendingRef.current) {
+      return;
     }
+
+    speakMutation.mutate(
+      { text, severity },
+      {
+        onSuccess: async (response: OracleSpeakResponse) => {
+          if (response.skipped) {
+            return;
+          }
+
+          pushOracleSpeech(response);
+          if (response.audioUrl) {
+            await playBase64Audio(response.audioUrl);
+          }
+        }
+      }
+    );
+  };
+
+  const unlockAudioContext = () => {
+    const AudioContextCtor =
+      window.AudioContext ??
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
+    if (!AudioContextCtor) {
+      return;
+    }
+
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContextCtor();
+    }
+
     if (audioContextRef.current.state === "suspended") {
       audioContextRef.current.resume().catch(console.error);
     }
   };
 
-  // Play a base64 data: URL through the pre-unlocked AudioContext
   const playBase64Audio = async (dataUrl?: string | null) => {
-    // 1. Add this safety check!
     if (!dataUrl || !dataUrl.includes(",")) {
       setIsOracleSpeaking(false);
       return;
@@ -136,8 +237,8 @@ function App() {
       const base64 = dataUrl.split(",")[1];
       const binary = atob(base64);
       const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
       }
 
       const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
@@ -146,11 +247,10 @@ function App() {
       source.connect(ctx.destination);
       source.onended = () => setIsOracleSpeaking(false);
 
-      // Lock state BEFORE starting playback
       setIsOracleSpeaking(true);
       source.start();
-    } catch (e) {
-      console.error("Audio playback error", e);
+    } catch (error) {
+      console.error("Audio playback error", error);
       setIsOracleSpeaking(false);
     }
   };
@@ -167,34 +267,75 @@ function App() {
     refetchInterval: 15_000
   });
 
-  const previewQuery = useQuery({
-    queryKey: ["preview", selectedAssetId, selectedCityId],
-    queryFn: () =>
-      previewScenario({
-        assetId: selectedAssetId,
-        cityId: selectedCityId
-      }),
-    enabled: marketsQuery.isSuccess
-  });
-
-  useEffect(() => {
-    if (previewQuery.data?.feed) {
-      setFeed(previewQuery.data.feed);
-    }
-  }, [previewQuery.data, setFeed]);
-
-  const signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
+  const baseSignals = signalsQuery.data?.signals ?? [];
   const baseTickers = marketsQuery.data?.tickers ?? [];
+  const stormSystems = useMemo(() => createStormSystems(stormSeed), [stormSeed]);
+  const stormSnapshots = useMemo(
+    () => buildStormSnapshots(stormSystems, simulationMs),
+    [stormSystems, simulationMs]
+  );
+  const blockedCityIds = useMemo(() => getStormBlockedCityIds(stormSnapshots), [stormSnapshots]);
+  const blockedCityKey = useMemo(
+    () => [...blockedCityIds].sort().join(","),
+    [blockedCityIds]
+  );
+  const scenarioPatch = useMemo(
+    () => buildScenarioPatch(focusedCityId, scenario),
+    [focusedCityId, scenario]
+  );
+  const stormAdjustedSignals = useMemo(
+    () => applyStormEffectsToSignals(baseSignals, stormSnapshots),
+    [baseSignals, stormSnapshots]
+  );
+  const scenarioSnapshot = useMemo(() => {
+    if (!stormAdjustedSignals.length || !baseTickers.length) {
+      return null;
+    }
 
-  // Map our custom local storage prices over the base tickers
-  const tickers = baseTickers.map(t => {
-    const { prices, changePct } = useTradingStore.getState();
-    return {
-      ...t,
-      price: prices[selectedCityId]?.[t.assetId] ?? t.price,
-      changePct: changePct[selectedCityId]?.[t.assetId] ?? t.changePct
-    };
-  });
+    return createScenarioSnapshot(
+      {
+        assetId: selectedAssetId,
+        cityId: focusedCityId,
+        patch: scenarioPatch
+      },
+      stormAdjustedSignals,
+      baseTickers
+    );
+  }, [baseTickers, focusedCityId, scenarioPatch, selectedAssetId, stormAdjustedSignals]);
+
+  const signals = scenarioSnapshot?.signals ?? stormAdjustedSignals;
+
+  const tickers = baseTickers.map((ticker) => ({
+    ...ticker,
+    price: prices[focusedCityId]?.[ticker.assetId] ?? ticker.price,
+    changePct: changePct[focusedCityId]?.[ticker.assetId] ?? ticker.changePct
+  }));
+
+  const travelDisabledReason = useMemo(() => {
+    if (flight) {
+      if (flight.isReturningHome) {
+        return `Storm wall detected. Aircraft is automatically returning to ${cityIndex[flight.toCityId]?.name ?? flight.toCityId}.`;
+      }
+
+      return flight.phase === "holding"
+        ? "Storm wall detected. Aircraft is automatically turning back."
+        : "You are already airborne.";
+    }
+
+    if (focusedCityId === currentCityId) {
+      return null;
+    }
+
+    if (blockedCityIds.has(currentCityId)) {
+      return `${cityIndex[currentCityId]?.name ?? currentCityId} sits inside a storm.`;
+    }
+
+    if (blockedCityIds.has(focusedCityId)) {
+      return `${cityIndex[focusedCityId]?.name ?? focusedCityId} sits inside a storm.`;
+    }
+
+    return null;
+  }, [blockedCityIds, currentCityId, flight, focusedCityId]);
 
   const advanceLoadStage = (nextStage: GlobeLoadStage) => {
     setLoadStage((currentStage) => {
@@ -204,7 +345,38 @@ function App() {
     });
   };
 
-  // Globe mount orchestration
+  const handleStartFlight = () => {
+    if (flight || focusedCityId === currentCityId || travelDisabledReason) {
+      return;
+    }
+
+    setFlight(createFlightState(currentCityId, focusedCityId, performance.now()));
+  };
+
+  useEffect(() => {
+    let animationFrameId = 0;
+    let lastCommittedMs = -1000;
+
+    const tick = (now: number) => {
+      if (simulationStartRef.current === null) {
+        simulationStartRef.current = now;
+      }
+
+      const elapsedMs = now - simulationStartRef.current;
+      if (elapsedMs - lastCommittedMs >= 50) {
+        startTransition(() => {
+          setSimulationMs(elapsedMs);
+        });
+        lastCommittedMs = elapsedMs;
+      }
+
+      animationFrameId = window.requestAnimationFrame(tick);
+    };
+
+    animationFrameId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(animationFrameId);
+  }, []);
+
   useEffect(() => {
     let timeoutId: number | undefined;
     let animationFrameId = 0;
@@ -222,13 +394,12 @@ function App() {
         idleCallbackId = requestIdle(mountGlobe, { timeout: 320 });
         return;
       }
+
       timeoutId = window.setTimeout(mountGlobe, 90);
     });
 
     return () => {
-      if (typeof window.cancelAnimationFrame === "function") {
-        window.cancelAnimationFrame(animationFrameId);
-      }
+      window.cancelAnimationFrame(animationFrameId);
       if (idleCallbackId !== undefined && cancelIdle) {
         cancelIdle(idleCallbackId);
       }
@@ -238,139 +409,359 @@ function App() {
     };
   }, []);
 
-  // Keep speaking-state refs in sync so the interval callback can read them
-  // without taking them as deps (which would reset the interval on every state change).
-  useEffect(() => { isOracleSpeakingRef.current = isOracleSpeaking; }, [isOracleSpeaking]);
-  useEffect(() => { speakPendingRef.current = speakMutation.isPending; }, [speakMutation.isPending]);
-
-  // Multi-city oracle scanning — fires alerts only for cities where the user
-  // has stock holdings AND is NOT currently visiting that city.
-  // Runs on a fixed 5 s clock, independent of React Query refresh cycle.
   useEffect(() => {
-    if (!ORACLE_ENABLED || !audioEnabled) return;
+    isOracleSpeakingRef.current = isOracleSpeaking;
+  }, [isOracleSpeaking]);
 
-    const scan = () => {
-      // Never overlap: skip the entire scan while a request is in-flight or
-      // audio is still playing.  The onended handler clears isOracleSpeakingRef;
-      // the mutation's onSettled clears speakPendingRef.
-      if (isOracleSpeakingRef.current || speakPendingRef.current) return;
+  useEffect(() => {
+    speakPendingRef.current = speakMutation.isPending;
+  }, [speakMutation.isPending]);
 
-      // Snapshot latest signals from the query cache
-      const latestSignals: typeof signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
-      if (!latestSignals.length) return;
+  useEffect(() => {
+    if (!flight) {
+      previousFlightIdRef.current = null;
+      previousFlightPhaseRef.current = null;
+      return;
+    }
 
-      const latestHoldings = useTradingStore.getState().holdings;
+    if (previousFlightIdRef.current !== flight.id) {
+      previousFlightIdRef.current = flight.id;
+      previousFlightPhaseRef.current = flight.phase;
+      return;
+    }
 
-      for (const signal of latestSignals) {
-        // Skip the city the user is currently in
-        if (signal.cityId === selectedCityId) continue;
-
-        // Skip cities where the user holds no positions
-        const cityHoldings = latestHoldings[signal.cityId] ?? {};
-        const hasHoldings = Object.values(cityHoldings).some(qty => qty > 0);
-        if (!hasHoldings) continue;
-
-        const currZones = getConditionZones(signal);
-        const prevZones = prevZonesByCityRef.current[signal.cityId];
-
-        // First observation — initialise zones silently, don't fire anything
-        if (prevZones === undefined) {
-          prevZonesByCityRef.current[signal.cityId] = currZones;
-          continue;
-        }
-
-        const cityName = cityIndex[signal.cityId]?.name ?? signal.cityId;
-        const crossing = checkBoundaryCrossings(prevZones, currZones, signal, cityName);
-
-        // Always update stored zones before acting on the result
-        prevZonesByCityRef.current[signal.cityId] = currZones;
-
-        if (!crossing) continue;
-
-        // Zone EXIT → push a calm feed item, no speech
-        if (crossing.exit) {
-          setFeed([{
-            id: `${signal.cityId}-exit-${Date.now()}`,
-            title: "Conditions easing",
-            body: crossing.exit.display,
-            cityId: signal.cityId,
-            severity: "calm",
-            kind: "environment",
-            timestamp: new Date().toISOString()
-          }]);
-        }
-
-        // Zone ENTRY → green flash + speak (if oracle is free)
-        if (crossing.entry) {
-          if (oracleFlashTimeoutRef.current !== null) clearTimeout(oracleFlashTimeoutRef.current);
-          setOracleFlash(true);
-          oracleFlashTimeoutRef.current = window.setTimeout(() => setOracleFlash(false), 1500);
-
-          if (!isOracleSpeakingRef.current && !speakPendingRef.current) {
-            speakMutation.mutate(
-              { text: crossing.entry.speech, severity: "critical" },
-              {
-                onSuccess: async (response) => {
-                  // Server returns { skipped: true } when the audio lock is active.
-                  // Bail out cleanly without touching oracle history or audio state.
-                  if (response.skipped) return;
-                  pushOracleSpeech(response);
-                  if (response.audioUrl) await playBase64Audio(response.audioUrl);
-                }
-              }
-            );
-          }
-        }
-
-        break; // Queue one alert at a time; remainder will catch up next tick
+    const previousPhase = previousFlightPhaseRef.current;
+    if (previousPhase !== flight.phase) {
+      if (flight.phase === "holding") {
+        setFeed([
+          createFeedItem(
+            `flight-hold-${flight.id}`,
+            "Flight holding",
+            `${cityIndex[flight.toCityId]?.name ?? flight.toCityId} is blocked by a storm. The aircraft is circling outside the front.`,
+            "critical",
+            "environment",
+            flight.toCityId
+          )
+        ]);
       }
+
+      if (previousPhase === "holding" && flight.phase === "en-route") {
+        setFeed([
+          createFeedItem(
+            `flight-resume-${flight.id}-${Math.round(simulationMs)}`,
+            "Flight resumed",
+            `Storm path cleared. Resuming approach to ${cityIndex[flight.toCityId]?.name ?? flight.toCityId}.`,
+            "watch",
+            "environment",
+            flight.toCityId
+          )
+        ]);
+      }
+    }
+
+    previousFlightPhaseRef.current = flight.phase;
+  }, [flight, setFeed, simulationMs]);
+
+  useEffect(() => {
+    const activeFlight = useAppStore.getState().flight;
+    if (!activeFlight) {
+      return;
+    }
+
+    const nowMs = performance.now();
+    const deltaMs = Math.max(0, nowMs - activeFlight.lastUpdatedAtMs);
+    if (deltaMs === 0) {
+      return;
+    }
+
+    if (activeFlight.isReturningHome) {
+      const nextProgress = Math.min(1, activeFlight.progress + deltaMs / activeFlight.durationMs);
+
+      if (nextProgress >= 1) {
+        setCurrentCity(activeFlight.toCityId);
+        setFocusedCity(activeFlight.toCityId);
+        setFlight(null);
+        setFeed([
+          createFeedItem(
+            `flight-arrived-${activeFlight.id}`,
+            "Returned home",
+            `Back safely in ${cityIndex[activeFlight.toCityId]?.name ?? activeFlight.toCityId}. Trading access restored.`,
+            "calm",
+            "market",
+            activeFlight.toCityId
+          )
+        ]);
+        return;
+      }
+
+      const nextPoint = getPathPointAtProgress(activeFlight.path, nextProgress);
+      setFlight({
+        ...activeFlight,
+        progress: nextProgress,
+        currentLat: nextPoint.lat,
+        currentLon: nextPoint.lon,
+        remainingMs: Math.max(0, activeFlight.durationMs * (1 - nextProgress)),
+        lastUpdatedAtMs: nowMs
+      });
+      return;
+    }
+
+    const triggerForcedReturn = (flightToReverse: FlightState) => {
+      const returnFlight = createReturnFlightState(flightToReverse, nowMs);
+      setFocusedCity(returnFlight.toCityId);
+      setFlight(returnFlight);
+      setFeed([
+        createFeedItem(
+          `flight-return-${returnFlight.id}`,
+          "Storm forced return",
+          `${cityIndex[flightToReverse.toCityId]?.name ?? flightToReverse.toCityId} is cut off by the visible amber no-fly surface. Aircraft is automatically returning to ${cityIndex[returnFlight.toCityId]?.name ?? returnFlight.toCityId}.`,
+          "critical",
+          "environment",
+          flightToReverse.toCityId
+        )
+      ]);
     };
 
-    // Run immediately, then every 5 s
-    scan();
-    const intervalId = window.setInterval(scan, 5_000);
-    return () => window.clearInterval(intervalId);
-  }, [audioEnabled, selectedCityId, previewQuery.data, signalsQuery.data]);
+    if (activeFlight.phase === "holding") {
+      triggerForcedReturn(activeFlight);
+      return;
+    }
 
-  // Background price tick effect
+    const holdProgress = findFlightHoldProgress(
+      activeFlight.path,
+      stormSnapshots,
+      activeFlight.progress
+    );
+    const nextProgress = Math.min(1, activeFlight.progress + deltaMs / activeFlight.durationMs);
+
+    if (holdProgress !== null && nextProgress >= holdProgress) {
+      const holdPoint = getPathPointAtProgress(activeFlight.path, holdProgress);
+      triggerForcedReturn({
+        ...activeFlight,
+        phase: "holding",
+        progress: holdProgress,
+        holdProgress,
+        holdingStartedAtMs: nowMs,
+        currentLat: holdPoint.lat,
+        currentLon: holdPoint.lon,
+        remainingMs: Math.max(0, activeFlight.durationMs * (1 - holdProgress)),
+        lastUpdatedAtMs: nowMs
+      });
+      return;
+    }
+
+    if (nextProgress >= 1) {
+      setCurrentCity(activeFlight.toCityId);
+      setFocusedCity(activeFlight.toCityId);
+      setFlight(null);
+      setFeed([
+        createFeedItem(
+          `flight-arrived-${activeFlight.id}`,
+          activeFlight.isReturningHome ? "Returned home" : "Touchdown",
+          activeFlight.isReturningHome
+            ? `Back safely in ${cityIndex[activeFlight.toCityId]?.name ?? activeFlight.toCityId}. Trading access restored.`
+            : `Arrived in ${cityIndex[activeFlight.toCityId]?.name ?? activeFlight.toCityId}. Trading access restored.`,
+          "calm",
+          "market",
+          activeFlight.toCityId
+        )
+      ]);
+      return;
+    }
+
+    const nextPoint = getPathPointAtProgress(activeFlight.path, nextProgress);
+    setFlight({
+      ...activeFlight,
+      progress: nextProgress,
+      currentLat: nextPoint.lat,
+      currentLon: nextPoint.lon,
+      remainingMs: Math.max(0, activeFlight.durationMs * (1 - nextProgress)),
+      lastUpdatedAtMs: nowMs
+    });
+  }, [setCurrentCity, setFeed, setFlight, setFocusedCity, simulationMs, stormSnapshots]);
+
   useEffect(() => {
-    if (!signals.length) return;
+    if (!ORACLE_ENABLED || !audioEnabled || !signals.length) {
+      return;
+    }
 
-    const interval = setInterval(() => {
-      // Tick for all cities
-      signals.forEach(citySignal => {
+    for (const signal of signals) {
+      if (signal.cityId === currentCityId) {
+        continue;
+      }
+
+      const cityHoldings = useTradingStore.getState().holdings[signal.cityId] ?? {};
+      const hasHoldings = Object.values(cityHoldings).some((quantity) => quantity > 0);
+      if (!hasHoldings) {
+        continue;
+      }
+
+      const currentZones = new Set<string>();
+      if (signal.humidity > 80) currentZones.add("hum-high");
+      if (signal.humidity < 30) currentZones.add("hum-low");
+      if (signal.temperature > 40) currentZones.add("temp-high");
+      if (signal.temperature < -5) currentZones.add("temp-low");
+      if (signal.wind > 35) currentZones.add("wind-high");
+      if (signal.rain > 15) currentZones.add("rain-high");
+
+      const previousZones = prevZonesByCityRef.current[signal.cityId];
+      if (previousZones === undefined) {
+        prevZonesByCityRef.current[signal.cityId] = currentZones;
+        continue;
+      }
+
+      const cityName = cityIndex[signal.cityId]?.name ?? signal.cityId;
+      const crossing = checkBoundaryCrossings(previousZones, currentZones, signal, cityName);
+      prevZonesByCityRef.current[signal.cityId] = currentZones;
+
+      if (!crossing) {
+        continue;
+      }
+
+      if (crossing.exit) {
+        setFeed([
+          createFeedItem(
+            `${signal.cityId}-exit-${Math.round(simulationMs)}`,
+            "Conditions easing",
+            crossing.exit.display,
+            "calm",
+            "environment",
+            signal.cityId
+          )
+        ]);
+      }
+
+      if (crossing.entry) {
+        if (oracleFlashTimeoutRef.current !== null) {
+          window.clearTimeout(oracleFlashTimeoutRef.current);
+        }
+        setOracleFlash(true);
+        oracleFlashTimeoutRef.current = window.setTimeout(() => setOracleFlash(false), 1500);
+        queueOracleSpeech(crossing.entry.speech, "critical");
+      }
+
+      break;
+    }
+  }, [audioEnabled, currentCityId, setFeed, signals, simulationMs]);
+
+  useEffect(() => {
+    const nextStormState: Record<string, boolean> = {};
+
+    for (const city of cities) {
+      const stormed = blockedCityIds.has(city.id);
+      nextStormState[city.id] = stormed;
+
+      const previousStormed = prevStormStateRef.current[city.id];
+      if (previousStormed === undefined) {
+        continue;
+      }
+
+      const cityHoldings = holdings[city.id] ?? {};
+      const hasHoldings = Object.values(cityHoldings).some((quantity) => quantity > 0);
+      if (!hasHoldings) {
+        continue;
+      }
+
+      if (!previousStormed && stormed) {
+        const body = `${city.name} has been swallowed by a roaming storm. Flights are suspended and local ecology is deteriorating fast.`;
+        setFeed([
+          createFeedItem(
+            `storm-enter-${city.id}-${Math.round(simulationMs)}`,
+            "Stormfall over holdings",
+            body,
+            "critical",
+            "environment",
+            city.id
+          )
+        ]);
+
+        if (city.id !== currentCityId) {
+          queueOracleSpeech(`${city.name} is trapped under a severe storm front.`, "critical");
+        }
+      }
+
+      if (previousStormed && !stormed) {
+        setFeed([
+          createFeedItem(
+            `storm-clear-${city.id}-${Math.round(simulationMs)}`,
+            "Storm front clearing",
+            `${city.name} is emerging from the storm track and flight access is reopening.`,
+            "watch",
+            "environment",
+            city.id
+          )
+        ]);
+      }
+    }
+
+    prevStormStateRef.current = nextStormState;
+  }, [blockedCityIds, blockedCityKey, currentCityId, holdings, setFeed, simulationMs]);
+
+  useEffect(() => {
+    if (!signals.length || !baseTickers.length) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      signals.forEach((citySignal) => {
         const deltas: Record<string, number> = {};
-        baseTickers.forEach(t => {
-          const assetProfile = assetProfiles.find(a => a.id === t.assetId);
-          if (assetProfile) {
-            const comp = computeOracle(assetProfile, citySignal, t.price);
-            deltas[t.assetId] = comp.earthDelta;
+        baseTickers.forEach((ticker) => {
+          const assetProfile = assetProfiles.find((asset) => asset.id === ticker.assetId);
+          if (!assetProfile) {
+            return;
           }
+
+          const computation = computeOracle(assetProfile, citySignal, ticker.price);
+          deltas[ticker.assetId] = computation.earthDelta;
         });
+
         tickPrices(citySignal.cityId, deltas);
       });
     }, 1000);
 
-    return () => clearInterval(interval);
-  }, [signals, baseTickers, tickPrices]);
+    return () => window.clearInterval(intervalId);
+  }, [baseTickers, signals, tickPrices]);
 
   const sideMotionProps = isAppInteractive
-    ? { initial: { opacity: 0, x: -24 }, animate: { opacity: 1, x: 0 }, transition: { duration: 0.5 } }
-    : { initial: false as const, animate: { opacity: 1, x: 0 }, transition: { duration: 0 } };
+    ? {
+        initial: { opacity: 0, x: -24 },
+        animate: { opacity: 1, x: 0 },
+        transition: { duration: 0.5 }
+      }
+    : {
+        initial: false as const,
+        animate: { opacity: 1, x: 0 },
+        transition: { duration: 0 }
+      };
 
   const rightMotionProps = isAppInteractive
-    ? { initial: { opacity: 0, x: 24 }, animate: { opacity: 1, x: 0 }, transition: { duration: 0.5 } }
-    : { initial: false as const, animate: { opacity: 1, x: 0 }, transition: { duration: 0 } };
+    ? {
+        initial: { opacity: 0, x: 24 },
+        animate: { opacity: 1, x: 0 },
+        transition: { duration: 0.5 }
+      }
+    : {
+        initial: false as const,
+        animate: { opacity: 1, x: 0 },
+        transition: { duration: 0 }
+      };
 
   const globeMotionProps = isAppInteractive
-    ? { initial: { opacity: 0, scale: 0.96 }, animate: { opacity: 1, scale: 1 }, transition: { duration: 0.6 } }
-    : { initial: false as const, animate: { opacity: 1, scale: 1 }, transition: { duration: 0 } };
+    ? {
+        initial: { opacity: 0, scale: 0.96 },
+        animate: { opacity: 1, scale: 1 },
+        transition: { duration: 0.6 }
+      }
+    : {
+        initial: false as const,
+        animate: { opacity: 1, scale: 1 },
+        transition: { duration: 0 }
+      };
 
   return (
     <div className={isAppInteractive ? "app-shell is-interactive" : "app-shell is-loading"}>
       <div className="starscape" />
 
-      {/* Visual Glitch/Fungal layer that appears when speaking */}
       <AnimatePresence>
         {isOracleSpeaking && (
           <motion.div
@@ -382,7 +773,6 @@ function App() {
         )}
       </AnimatePresence>
 
-      {/* Green flash when a new oracle alert fires */}
       {oracleFlash && <div className="oracle-flash-overlay" aria-hidden="true" />}
 
       <header className="app-header">
@@ -396,16 +786,12 @@ function App() {
             <strong>{cities.length}</strong>
           </div>
           <div>
-            <span>Primary spread</span>
-            <strong>
-              {previewQuery.data?.primary.earthDelta
-                ? `${previewQuery.data.primary.earthDelta > 0 ? "+" : ""}${previewQuery.data.primary.earthDelta}`
-                : "..."}
-            </strong>
+            <span>Storms in play</span>
+            <strong>{stormSnapshots.length}</strong>
           </div>
           <div>
-            {audioEnabled && <span>Audio Oracle</span>}
-            <div className={`spore-indicator ${audioEnabled ? "active" : ""}`} />
+            <span>Flight status</span>
+            <strong>{describeFlightStatus(flight)}</strong>
           </div>
         </div>
       </header>
@@ -421,11 +807,15 @@ function App() {
               <div className={isAppInteractive ? "globe-scene-slot is-ready" : "globe-scene-slot"}>
                 <Suspense fallback={null}>
                   <GlobeScene
-                    selectedCityId={selectedCityId}
+                    focusedCityId={focusedCityId}
+                    currentCityId={currentCityId}
                     selectedAssetId={selectedAssetId}
                     signals={signals}
-                    rankings={previewQuery.data?.rankings ?? []}
-                    onSelectCity={setCity}
+                    rankings={scenarioSnapshot?.rankings ?? []}
+                    storms={stormSnapshots}
+                    blockedCityIds={[...blockedCityIds]}
+                    flight={flight}
+                    onSelectCity={setFocusedCity}
                     onStageChange={(stage) => advanceLoadStage(stage)}
                     onInteractive={() => {
                       advanceLoadStage("interactive");
@@ -439,9 +829,30 @@ function App() {
           </div>
           <div className="globe-overlay">
             <div className="overlay-panel">
-              <span className="eyebrow">Selected city — click globe to change</span>
-              <strong>{cityIndex[selectedCityId]?.name}</strong>
-              <p>{previewQuery.data?.oracleText ?? "Waiting for planetary repricing."}</p>
+              <span className="eyebrow">Focused city — click globe to inspect</span>
+              <strong>{cityIndex[focusedCityId]?.name}</strong>
+              <p>{scenarioSnapshot?.oracleText ?? "Waiting for planetary repricing."}</p>
+              <div className="overlay-location-meta">
+                <span>Current base: {cityIndex[currentCityId]?.name}</span>
+                <span>
+                  {blockedCityIds.has(focusedCityId)
+                    ? "Destination sits inside the amber no-fly surface"
+                    : "Airspace open"}
+                </span>
+              </div>
+              <div className="overlay-no-fly-panel">
+                <span className="eyebrow">Airspace Surface</span>
+                <p>Only the amber storm footprint painted on the globe is blocked. If a city sits inside that surface, you cannot depart or arrive there.</p>
+              </div>
+              {flight ? (
+                <div className="overlay-flight-chip">
+                  {flight.isReturningHome
+                    ? `Auto-return to ${cityIndex[flight.toCityId]?.name ?? flight.toCityId} — ETA ${(flight.remainingMs / 1000).toFixed(1)}s`
+                    : flight.phase === "holding"
+                      ? `Storm wall reached. Turning back to ${cityIndex[flight.fromCityId]?.name ?? flight.fromCityId}.`
+                      : `ETA ${(flight.remainingMs / 1000).toFixed(1)}s`}
+                </div>
+              ) : null}
             </div>
           </div>
         </motion.section>
@@ -449,10 +860,15 @@ function App() {
         <motion.div className="right-column" {...rightMotionProps}>
           <MarketPanel
             tickers={tickers}
-            preview={previewQuery.data}
+            snapshot={scenarioSnapshot ?? undefined}
             selectedAssetId={selectedAssetId}
-            selectedCityId={selectedCityId}
+            focusedCityId={focusedCityId}
+            currentCityId={currentCityId}
+            blockedCityIds={[...blockedCityIds]}
+            flight={flight}
+            travelDisabledReason={travelDisabledReason}
             onSelectAsset={setAsset}
+            onStartFlight={handleStartFlight}
           />
         </motion.div>
       </main>
