@@ -56,49 +56,19 @@ cities.forEach((city) => {
 function getMyceliumFailure(
   mycelium: MyceliumSignal
 ): { reason: TradeFailureReason; message: string } | null {
-  if (mycelium.soilMoisture < 20) {
-    return {
-      reason: "mycelium-too-dry",
-      message: `Soil moisture ${mycelium.soilMoisture.toFixed(0)}% is too dry for the mycelium network.`
-    };
+  const soilMoistureOk = mycelium.soilMoisture >= 20 && mycelium.soilMoisture <= 85;
+  const soilPhOk = mycelium.soilPh >= 5 && mycelium.soilPh <= 8;
+  const humidityOk = mycelium.humidity >= 25 && mycelium.humidity <= 88;
+
+  // Only block trading if ALL THREE signals are outside their healthy ranges
+  if (soilMoistureOk || soilPhOk || humidityOk) {
+    return null;
   }
 
-  if (mycelium.soilMoisture > 85) {
-    return {
-      reason: "mycelium-waterlogged",
-      message: `Soil moisture ${mycelium.soilMoisture.toFixed(0)}% has waterlogged the mycelium network.`
-    };
-  }
-
-  if (mycelium.soilPh < 5) {
-    return {
-      reason: "mycelium-too-acidic",
-      message: `Soil pH ${mycelium.soilPh.toFixed(1)} is too acidic for the mycelium network.`
-    };
-  }
-
-  if (mycelium.soilPh > 8) {
-    return {
-      reason: "mycelium-too-alkaline",
-      message: `Soil pH ${mycelium.soilPh.toFixed(1)} is too alkaline for the mycelium network.`
-    };
-  }
-
-  if (mycelium.humidity < 25) {
-    return {
-      reason: "mycelium-too-arid",
-      message: `Humidity ${mycelium.humidity.toFixed(0)}% is too low for the mycelium network.`
-    };
-  }
-
-  if (mycelium.humidity > 88) {
-    return {
-      reason: "mycelium-oversaturated",
-      message: `Humidity ${mycelium.humidity.toFixed(0)}% is oversaturating the mycelium network.`
-    };
-  }
-
-  return null;
+  return {
+    reason: "mycelium-network-collapse",
+    message: `Mycelium network has collapsed: soil moisture ${mycelium.soilMoisture.toFixed(0)}%, pH ${mycelium.soilPh.toFixed(1)}, humidity ${mycelium.humidity.toFixed(0)}% are all outside healthy ranges.`
+  };
 }
 
 export const useTradingStore = create<TradingState>()((set, get) => ({

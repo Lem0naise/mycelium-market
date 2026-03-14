@@ -53,12 +53,7 @@ const tradeFailureCopy: Record<TradeFailureReason, string> = {
   "insufficient-cash": "Not enough cash to complete that trade.",
   "no-holdings": "There are no units available to sell here.",
   "ecological-interference": "Ecological interference disrupted the trade.",
-  "mycelium-too-dry": "The mycelium network is too dry to route this trade.",
-  "mycelium-waterlogged": "The mycelium network is waterlogged and trade routing has collapsed.",
-  "mycelium-too-acidic": "The mycelium network is too acidic to carry the trade.",
-  "mycelium-too-alkaline": "The mycelium network is too alkaline to carry the trade.",
-  "mycelium-too-arid": "The air is too dry for the mycelium network to open.",
-  "mycelium-oversaturated": "Humidity is oversaturating the mycelium network."
+  "mycelium-network-collapse": "The mycelium network has fully collapsed — all three signals are outside healthy ranges."
 };
 
 export function MarketPanel({

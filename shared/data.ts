@@ -327,7 +327,7 @@ export const assetProfiles: AssetProfile[] = [
     ecologicalWeights: {
       humidity: 0,
       rain: 0,
-      temperature: 1.0,
+      temperature: -1.0,
       wind: 0,
       airQuality: 0,
       soilMoisture: 0,
@@ -351,7 +351,7 @@ export const assetProfiles: AssetProfile[] = [
       rain: 0,
       temperature: 0,
       wind: 0,
-      airQuality: 0.8,
+      airQuality: -1,
       soilMoisture: 0,
       soilPh: 0
     },
