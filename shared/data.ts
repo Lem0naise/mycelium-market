@@ -316,7 +316,7 @@ export const assetProfiles: AssetProfile[] = [
   }
 ];
 
-export const defaultAssetId = "BTC";
+export const defaultAssetId = "KAI";
 export const defaultCityId = "abidjan";
 
 export const cityIndex = Object.fromEntries(cities.map((city) => [city.id, city]));
