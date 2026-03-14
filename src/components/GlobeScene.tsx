@@ -669,8 +669,8 @@ function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeRenderStage })
   const countryPolygons = useMemo(() => getCountryPolygons(), []);
   const visualSignals = useDeferredValue(props.signals);
   const visualRankings = useDeferredValue(props.rankings);
-  const visualStorms = useDeferredValue(props.storms);
-  const visualFlight = useDeferredValue(props.flight);
+  const visualStorms = props.storms;
+  const visualFlight = props.flight;
 
   const globe = useMemo(() => {
     const nextGlobe = new ThreeGlobe({

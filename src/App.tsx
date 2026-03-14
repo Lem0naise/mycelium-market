@@ -1,4 +1,4 @@
-import { Suspense, lazy, startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchMarkets, speakOracle } from "./api";
@@ -421,10 +421,8 @@ function App() {
       }
 
       const elapsedMs = now - simulationStartRef.current;
-      if (elapsedMs - lastCommittedMs >= 500) {
-        startTransition(() => {
-          setSimulationMs(elapsedMs);
-        });
+      if (elapsedMs - lastCommittedMs >= 33) {
+        setSimulationMs(elapsedMs);
         lastCommittedMs = elapsedMs;
       }
 
