@@ -738,23 +738,17 @@ function App() {
       {oracleFlash ? <div className="oracle-flash-overlay" aria-hidden="true" /> : null}
 
       <header className="app-header">
-        <div>
-          <span className="eyebrow">Terra Arbitrage</span>
-          <h1>The planet is the trader.</h1>
+        
+        {/* 1. Left Section */}
+        <div className="header-left">
+          <div>
+            <span className="eyebrow">Mycelium Market</span>
+            <h1>The planet is the trader.</h1>
+          </div>
         </div>
 
-        <div
-          style={{
-            position: "absolute",
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            alignItems: "center",
-            gap: "28px",
-            pointerEvents: "none",
-            userSelect: "none"
-          }}
-        >
+        {/* 2. Center Section (No absolute positioning needed!) */}
+        <div className="header-center">
           <div style={{ textAlign: "right" }}>
             <span
               style={{
@@ -822,8 +816,14 @@ function App() {
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "flex-start", gap: "20px" }}>
-          <MyceliumWidget signals={signals} cityId={currentCityId} />
+        {/* 3. Right Section */}
+        <div className="header-right">
+          
+          {/* This spacer grabs all empty space between the Center Date and the Stats */}
+          <div className="mycelium-spacer">
+            <MyceliumWidget signals={signals} cityId={currentCityId} />
+          </div>
+
           <div className="header-stats">
             <div>
               <span>Tracked cities</span>
@@ -838,6 +838,7 @@ function App() {
               <strong>{describeFlightStatus(flight)}</strong>
             </div>
           </div>
+
         </div>
       </header>
 
