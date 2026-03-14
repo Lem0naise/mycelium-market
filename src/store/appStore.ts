@@ -1,18 +1,28 @@
 import { create } from "zustand";
 import { defaultAssetId, defaultCityId } from "../../shared/data";
-import type { EventFeedItem, OracleSpeech, ScenarioPatch } from "../../shared/types";
+import type {
+  EventFeedItem,
+  FlightState,
+  OracleSpeech,
+  ScenarioPatch
+} from "../../shared/types";
 
 type ScenarioControls = Omit<ScenarioPatch, "targetCityId">;
 
 type AppState = {
   selectedAssetId: string;
-  selectedCityId: string;
+  focusedCityId: string;
+  currentCityId: string;
   audioEnabled: boolean;
   scenario: ScenarioControls;
   oracleHistory: OracleSpeech[];
   feedHistory: EventFeedItem[];
+  stormSeed: number;
+  flight: FlightState | null;
   setAsset: (assetId: string) => void;
-  setCity: (cityId: string) => void;
+  setFocusedCity: (cityId: string) => void;
+  setCurrentCity: (cityId: string) => void;
+  setFlight: (flight: FlightState | null) => void;
   toggleAudio: () => void;
   setScenarioValue: (key: keyof ScenarioControls, value: number) => void;
   resetScenario: () => void;
@@ -32,13 +42,18 @@ const initialScenario: ScenarioControls = {
 
 export const useAppStore = create<AppState>((set) => ({
   selectedAssetId: defaultAssetId,
-  selectedCityId: defaultCityId,
+  focusedCityId: defaultCityId,
+  currentCityId: defaultCityId,
   audioEnabled: true,
   scenario: initialScenario,
   oracleHistory: [],
   feedHistory: [],
+  stormSeed: Math.round(Math.random() * 1_000_000),
+  flight: null,
   setAsset: (selectedAssetId) => set({ selectedAssetId }),
-  setCity: (selectedCityId) => set({ selectedCityId }),
+  setFocusedCity: (focusedCityId) => set({ focusedCityId }),
+  setCurrentCity: (currentCityId) => set({ currentCityId }),
+  setFlight: (flight) => set({ flight }),
   toggleAudio: () => set((state) => ({ audioEnabled: !state.audioEnabled })),
   setScenarioValue: (key, value) =>
     set((state) => ({

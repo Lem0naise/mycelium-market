@@ -1,18 +1,22 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App";
-import type { MarketsResponse, ScenarioPreviewResponse, SignalsResponse } from "../shared/types";
-import { createFallbackSignals, createFallbackTickers, createScenarioPreview } from "../shared/oracle";
+import type { MarketsResponse, SignalsResponse } from "../shared/types";
+import { createFallbackSignals, createFallbackTickers } from "../shared/oracle";
+import { useAppStore } from "../src/store/appStore";
+import { useTradingStore } from "../src/store/tradingStore";
 
 vi.mock("../src/components/GlobeScene", () => ({
   default: ({
     onStageChange,
-    onInteractive
+    onInteractive,
+    onSelectCity
   }: {
     onStageChange?: (stage: "base" | "signals" | "labels" | "interactive") => void;
     onInteractive?: () => void;
+    onSelectCity?: (cityId: string) => void;
   }) => (
     <div data-testid="globe-scene">
       <button type="button" onClick={() => onStageChange?.("base")}>
@@ -33,6 +37,9 @@ vi.mock("../src/components/GlobeScene", () => ({
       >
         stage-interactive
       </button>
+      <button type="button" onClick={() => onSelectCity?.("tokyo")}>
+        select-tokyo
+      </button>
     </div>
   )
 }));
@@ -47,17 +54,6 @@ const marketsPayload: MarketsResponse = {
   sourceMode: "synthetic",
   asOf: "2026-03-14T10:00:00.000Z"
 };
-
-const previewPayload: ScenarioPreviewResponse = createScenarioPreview(
-  {
-    assetId: "COCOA",
-    cityId: "abidjan",
-    compareCityId: "reykjavik",
-    patch: null
-  },
-  signalsPayload.signals,
-  marketsPayload.tickers
-);
 
 describe("App", () => {
   const originalFetch = global.fetch;
@@ -85,20 +81,39 @@ describe("App", () => {
       window.clearTimeout(handle);
     }) as typeof window.cancelIdleCallback;
 
+    useAppStore.setState({
+      selectedAssetId: "KAI",
+      focusedCityId: "abidjan",
+      currentCityId: "abidjan",
+      audioEnabled: true,
+      scenario: {
+        rainDelta: 0,
+        temperatureDelta: 0,
+        windDelta: 0,
+        soilMoistureDelta: 0,
+        soilPhDelta: 0,
+        humidityDelta: 0,
+        airQualityDelta: 0
+      },
+      oracleHistory: [],
+      feedHistory: [],
+      stormSeed: 42,
+      flight: null
+    });
+    useTradingStore.getState().resetPortfolio();
+
     global.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       const payload = url.includes("/api/markets")
         ? marketsPayload
         : url.includes("/api/signals")
           ? signalsPayload
-          : url.includes("/api/scenario/preview")
-            ? previewPayload
-            : {
-                text: previewPayload.oracleText,
-                audioUrl: null,
-                severity: previewPayload.primary.severity,
-                cooldownUntil: new Date().toISOString()
-              };
+          : {
+              text: "Storm alert",
+              audioUrl: null,
+              severity: "critical",
+              cooldownUntil: new Date().toISOString()
+            };
 
       return new Response(JSON.stringify(payload), {
         status: 200,
@@ -167,12 +182,19 @@ describe("App", () => {
       expect(screen.queryByText("Loading planetary engine")).not.toBeInTheDocument();
     });
 
-    await waitFor(() => expect(screen.getByText("Bitcoin")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("KaiCoin")).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: /NVDA/i }));
+    await user.click(screen.getByRole("button", { name: /WTFII/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("NVIDIA")).toBeInTheDocument();
+      expect(screen.getByText("WTFisIndie")).toBeInTheDocument();
     });
+
+    await user.click(screen.getByRole("button", { name: "select-tokyo" }));
+
+    const travelPanel = screen.getByText("Flight Deck").closest("section");
+    expect(travelPanel).not.toBeNull();
+    expect(within(travelPanel!).getByText("Tokyo")).toBeInTheDocument();
+    expect(within(travelPanel!).getByText("Abidjan")).toBeInTheDocument();
   });
 });
