@@ -197,21 +197,18 @@ function buildCityLabels(selectedCityId: string) {
 function CityNameLabels({
   globe,
   selectedCityId,
-  compareCityId,
-  detailStage
-}: Pick<GlobeSceneProps, "selectedCityId" | "compareCityId"> & {
+  detailStage,
+  onSelectCity
+}: Pick<GlobeSceneProps, "selectedCityId" | "onSelectCity"> & {
   globe: ThreeGlobe;
   detailStage: GlobeRenderStage;
 }) {
   const labels = useMemo(() => {
-    const nextLabels = buildCityLabels(selectedCityId, compareCityId);
+    const nextLabels = buildCityLabels(selectedCityId);
     return shouldRenderFullLabels(detailStage)
       ? nextLabels
-      : nextLabels.filter((label) => label.isSelected || label.isCompare);
-  }, [compareCityId, detailStage, selectedCityId]);
-  onSelectCity
-}: Pick<GlobeSceneProps, "selectedCityId" | "onSelectCity"> & { globe: ThreeGlobe }) {
-  const labels = useMemo(() => buildCityLabels(selectedCityId), [selectedCityId]);
+      : nextLabels.filter((label) => label.isSelected);
+  }, [detailStage, selectedCityId]);
   const camera = useThree((state) => state.camera);
   const anchorRefs = useRef<Array<THREE.Group | null>>([]);
   const chipRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -348,8 +345,8 @@ function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeRenderStage })
   }, [countryPolygons]);
 
   const pointData = useMemo(
-    () => buildPointData(props.signals, props.rankings, props.selectedCityId, props.compareCityId),
-    [props.compareCityId, props.rankings, props.selectedCityId, props.signals]
+    () => buildPointData(props.signals, props.rankings, props.selectedCityId),
+    [props.rankings, props.selectedCityId, props.signals]
   );
   const ringData = useMemo(() => buildRingData(props.signals), [props.signals]);
   const arcData = useMemo(
@@ -357,8 +354,8 @@ function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeRenderStage })
     [props.selectedAssetId, props.selectedCityId]
   );
   const basePointData = useMemo(
-    () => pointData.filter((point) => point.id === props.selectedCityId || point.id === props.compareCityId),
-    [pointData, props.compareCityId, props.selectedCityId]
+    () => pointData.filter((point) => point.id === props.selectedCityId),
+    [pointData, props.selectedCityId]
   );
   const showSignalLayers = shouldRenderSignalLayers(props.detailStage);
 

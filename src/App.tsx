@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchMarkets, fetchSignals, previewScenario, speakOracle } from "./api";
@@ -9,6 +9,11 @@ import { useAppStore } from "./store/appStore";
 import { useTradingStore } from "./store/tradingStore";
 import { computeOracle } from "../shared/oracle";
 import { AnimatePresence } from "framer-motion";
+import {
+  type GlobeLoadStage,
+  globeLoadStageMeta,
+  globeLoadStageOrder
+} from "./components/globeBoot";
 
 const GlobeScene = lazy(() => import("./components/GlobeScene"));
 
@@ -66,10 +71,16 @@ function GlobalLoadingScreen({ stage }: { stage: GlobeLoadStage }) {
 
 function App() {
   const [isOracleSpeaking, setIsOracleSpeaking] = useState(false);
+  const [isGlobeMounted, setIsGlobeMounted] = useState(false);
+  const [isAppInteractive, setIsAppInteractive] = useState(false);
+  const [loadStage, setLoadStage] = useState<GlobeLoadStage>("shell");
+
   const {
     selectedAssetId,
     selectedCityId,
+    liveMode,
     audioEnabled,
+    oracleHistory,
     feedHistory,
     setAsset,
     setCity,
@@ -81,27 +92,26 @@ function App() {
 
   const latestSpeechRef = useRef<string | null>(null);
   const speakMutation = useMutation({ mutationFn: speakOracle });
-  const liveMode = "live";
 
   const marketsQuery = useQuery({
-    queryKey: ["markets", "live"],
-    queryFn: () => fetchMarkets("live"),
+    queryKey: ["markets", liveMode],
+    queryFn: () => fetchMarkets(liveMode),
     refetchInterval: 15_000
   });
 
   const signalsQuery = useQuery({
-    queryKey: ["signals", "live"],
-    queryFn: () => fetchSignals("live", "all"),
+    queryKey: ["signals", liveMode],
+    queryFn: () => fetchSignals(liveMode, "all"),
     refetchInterval: 15_000
   });
 
   const previewQuery = useQuery({
-    queryKey: ["preview", "live", selectedAssetId, selectedCityId],
+    queryKey: ["preview", liveMode, selectedAssetId, selectedCityId],
     queryFn: () =>
       previewScenario({
         assetId: selectedAssetId,
         cityId: selectedCityId,
-        mode: "live"
+        mode: liveMode
       }),
     enabled: marketsQuery.isSuccess
   });
@@ -112,10 +122,14 @@ function App() {
     }
   }, [previewQuery.data, setFeed]);
 
-  const latestSpeechRef = useRef("");
-  const [isGlobeMounted, setIsGlobeMounted] = useState(false);
-  const [isAppInteractive, setIsAppInteractive] = useState(false);
-  const [loadStage, setLoadStage] = useState<GlobeLoadStage>("shell");
+  const signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
+  const baseTickers = marketsQuery.data?.tickers ?? [];
+
+  // Map our custom local storage prices over the base tickers
+  const tickers = baseTickers.map(t => ({
+    ...t,
+    price: prices[t.assetId] ?? t.price
+  }));
 
   const advanceLoadStage = (nextStage: GlobeLoadStage) => {
     setLoadStage((currentStage) => {
@@ -125,6 +139,7 @@ function App() {
     });
   };
 
+  // Globe mount orchestration
   useEffect(() => {
     let timeoutId: number | undefined;
     let animationFrameId = 0;
@@ -142,7 +157,6 @@ function App() {
         idleCallbackId = requestIdle(mountGlobe, { timeout: 320 });
         return;
       }
-
       timeoutId = window.setTimeout(mountGlobe, 90);
     });
 
@@ -158,14 +172,6 @@ function App() {
       }
     };
   }, []);
-  const signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
-  const baseTickers = marketsQuery.data?.tickers ?? [];
-
-  // Map our custom local storage prices over the base tickers
-  const tickers = baseTickers.map(t => ({
-    ...t,
-    price: prices[t.assetId] ?? t.price
-  }));
 
   // Automated Oracle speech effect
   useEffect(() => {
@@ -202,50 +208,11 @@ function App() {
     );
   }, [audioEnabled, previewQuery.data, pushOracleSpeech, speakMutation]);
 
-  const signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
-  const tickers = marketsQuery.data?.tickers ?? [];
-  const sideMotionProps = isAppInteractive
-    ? {
-        initial: { opacity: 0, x: -24 },
-        animate: { opacity: 1, x: 0 },
-        transition: { duration: 0.5 }
-      }
-    : {
-        initial: false,
-        animate: { opacity: 1, x: 0 },
-        transition: { duration: 0 }
-      };
-  const rightMotionProps = isAppInteractive
-    ? {
-        initial: { opacity: 0, x: 24 },
-        animate: { opacity: 1, x: 0 },
-        transition: { duration: 0.5 }
-      }
-    : {
-        initial: false,
-        animate: { opacity: 1, x: 0 },
-        transition: { duration: 0 }
-      };
-  const globeMotionProps = isAppInteractive
-    ? {
-        initial: { opacity: 0, scale: 0.96 },
-        animate: { opacity: 1, scale: 1 },
-        transition: { duration: 0.6 }
-      }
-    : {
-        initial: false,
-        animate: { opacity: 1, scale: 1 },
-        transition: { duration: 0 }
-      };
-
-  return (
-    <div className={isAppInteractive ? "app-shell is-interactive" : "app-shell is-loading"}>
   // Background price tick effect
   useEffect(() => {
     if (!signals.length) return;
 
     const interval = setInterval(() => {
-      // Calculate Earth Delta for ALL assets for the currently selected city
       const currentCitySignal = signals.find(s => s.cityId === selectedCityId) ?? signals[0];
       if (!currentCitySignal) return;
 
@@ -264,8 +231,20 @@ function App() {
     return () => clearInterval(interval);
   }, [signals, selectedCityId, baseTickers, tickPrices]);
 
+  const sideMotionProps = isAppInteractive
+    ? { initial: { opacity: 0, x: -24 }, animate: { opacity: 1, x: 0 }, transition: { duration: 0.5 } }
+    : { initial: false as const, animate: { opacity: 1, x: 0 }, transition: { duration: 0 } };
+
+  const rightMotionProps = isAppInteractive
+    ? { initial: { opacity: 0, x: 24 }, animate: { opacity: 1, x: 0 }, transition: { duration: 0.5 } }
+    : { initial: false as const, animate: { opacity: 1, x: 0 }, transition: { duration: 0 } };
+
+  const globeMotionProps = isAppInteractive
+    ? { initial: { opacity: 0, scale: 0.96 }, animate: { opacity: 1, scale: 1 }, transition: { duration: 0.6 } }
+    : { initial: false as const, animate: { opacity: 1, scale: 1 }, transition: { duration: 0 } };
+
   return (
-    <div className={`app-shell ${isOracleSpeaking ? "oracle-active" : ""}`}>
+    <div className={isAppInteractive ? "app-shell is-interactive" : "app-shell is-loading"}>
       <div className="starscape" />
 
       {/* Visual Glitch/Fungal layer that appears when speaking */}
@@ -321,10 +300,10 @@ function App() {
                 <Suspense fallback={null}>
                   <GlobeScene
                     selectedCityId={selectedCityId}
-                    compareCityId={compareCityId}
                     selectedAssetId={selectedAssetId}
                     signals={signals}
                     rankings={previewQuery.data?.rankings ?? []}
+                    onSelectCity={setCity}
                     onStageChange={(stage) => advanceLoadStage(stage)}
                     onInteractive={() => {
                       advanceLoadStage("interactive");
@@ -362,22 +341,6 @@ function App() {
           />
         </motion.div>
       </main>
-
-      <ControlsBar
-        selectedAssetId={selectedAssetId}
-        selectedCityId={selectedCityId}
-        compareCityId={compareCityId}
-        liveMode={liveMode}
-        audioEnabled={audioEnabled}
-        scenario={scenario}
-        onAssetChange={setAsset}
-        onCityChange={setCity}
-        onCompareChange={setCompareCity}
-        onModeChange={setLiveMode}
-        onScenarioChange={setScenarioValue}
-        onResetScenario={resetScenario}
-        onToggleAudio={toggleAudio}
-      />
 
       {!isAppInteractive ? <GlobalLoadingScreen stage={loadStage} /> : null}
     </div>
