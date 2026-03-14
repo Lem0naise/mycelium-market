@@ -339,6 +339,44 @@ button {
   padding: 0.9rem 1rem;
 }
 
+.city-marker-label {
+  --city-label-color: #d8e0e7;
+  padding: 0.16rem 0.38rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--city-label-color) 22%, rgba(255, 255, 255, 0.08));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--city-label-color) 10%, transparent), transparent 72%),
+    rgba(4, 7, 12, 0.9);
+  color: var(--city-label-color);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.54rem;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow:
+    0 6px 14px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  pointer-events: none;
+  transform: translate(7px, -2px);
+  transition: opacity 120ms linear;
+}
+
+.city-marker-label.selected {
+  font-size: 0.6rem;
+  font-weight: 700;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--city-label-color) 18%, transparent),
+    0 8px 18px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.city-marker-label.compare {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--city-label-color) 8%, transparent), transparent 72%),
+    rgba(6, 10, 16, 0.88);
+}
+
 .overlay-panel strong {
   display: block;
   margin: 0.2rem 0 0.4rem;
@@ -495,6 +533,95 @@ button {
   width: 100%;
 }
 
+.city-selection-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.city-selection-card {
+  --city-accent: #95a5af;
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1.05rem 1.05rem;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--city-accent) 28%, rgba(255, 255, 255, 0.08));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--city-accent) 12%, transparent), transparent 62%),
+    rgba(255, 255, 255, 0.035);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+    0 14px 30px rgba(0, 0, 0, 0.18);
+}
+
+.city-selection-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--city-accent);
+  opacity: 0.9;
+}
+
+.city-selection-card h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  letter-spacing: -0.03em;
+}
+
+.city-selection-card p {
+  margin: 0;
+  color: #aab8c0;
+}
+
+.city-selection-card.is-empty {
+  opacity: 0.8;
+}
+
+.city-selection-topline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.city-selection-topline span,
+.city-selection-topline strong {
+  font-family: "IBM Plex Mono", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+}
+
+.city-selection-topline span {
+  color: #9baab3;
+}
+
+.city-selection-topline strong {
+  color: var(--city-accent);
+}
+
+.city-selection-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.2rem;
+}
+
+.city-selection-tags span {
+  padding: 0.28rem 0.48rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--city-accent) 24%, rgba(255, 255, 255, 0.08));
+  background: color-mix(in srgb, var(--city-accent) 9%, rgba(255, 255, 255, 0.025));
+  color: #dfe7eb;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 select,
 .toggle,
 .reset-button {
@@ -503,6 +630,14 @@ select,
   background: rgba(255, 255, 255, 0.04);
   color: #edf1e8;
   padding: 0.78rem 0.9rem;
+}
+
+select:focus,
+.toggle:focus,
+.reset-button:focus,
+input[type="range"]:focus {
+  outline: 2px solid rgba(127, 242, 208, 0.22);
+  outline-offset: 2px;
 }
 
 .toggle-cluster {
