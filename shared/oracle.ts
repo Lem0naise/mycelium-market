@@ -215,18 +215,21 @@ function severityRank(severity: Severity) {
  */
 export function getConditionZones(signal: EnvironmentalSignal): Set<string> {
   const zones = new Set<string>();
-  if (signal.humidity > 80)    zones.add("hum-high");
-  if (signal.humidity < 30)    zones.add("hum-low");
+  if (signal.humidity > 80) zones.add("hum-high");
+  if (signal.humidity < 30) zones.add("hum-low");
   if (signal.temperature > 40) zones.add("temp-high");
   if (signal.temperature < -5) zones.add("temp-low");
-  if (signal.wind > 35)        zones.add("wind-high");
-  if (signal.rain > 15)        zones.add("rain-high");
+  if (signal.wind > 35) zones.add("wind-high");
+  if (signal.rain > 15) zones.add("rain-high");
   return zones;
 }
 
 /**
- * Edge-detector: compares prevZones → currZones for one city and returns alert
- * text only for thresholds that were just CROSSED (entered OR exited).
+ * Edge-detector: compares prevZones → currZones for one city and returns separate
+ * entry and exit crossing data.
+ *
+ * - `entry`: zones just entered → speak via ElevenLabs + flash (no feed item)
+ * - `exit`: zones just exited → push a "calm" feed item (no speech)
  *
  * Returns null when nothing changed — i.e. a city already at hum 94 moving to
  * hum 93 produces no result because "hum-high" was active before and is still active.
@@ -239,7 +242,10 @@ export function checkBoundaryCrossings(
   currZones: Set<string>,
   signal: EnvironmentalSignal,
   cityName: string
-): { display: string; speech: string } | null {
+): {
+  entry: { display: string; speech: string } | null;
+  exit: { display: string } | null;
+} | null {
   const entered: string[] = [];
   const exited: string[] = [];
   for (const z of currZones) if (!prevZones.has(z)) entered.push(z);
@@ -249,39 +255,44 @@ export function checkBoundaryCrossings(
 
   // Per-zone label factories — called at crossing time so values reflect actual signal
   const enterLabels: Record<string, [string, string]> = {
-    "hum-high":  [`hum. ${Math.round(signal.humidity)}% ↑`,  `humidity rising to ${Math.round(signal.humidity)} percent`],
-    "hum-low":   [`hum. ${Math.round(signal.humidity)}% ↓`,  `humidity dropping to ${Math.round(signal.humidity)} percent`],
+    "hum-high": [`hum. ${Math.round(signal.humidity)}% ↑`, `humidity rising to ${Math.round(signal.humidity)} percent`],
+    "hum-low": [`hum. ${Math.round(signal.humidity)}% ↓`, `humidity dropping to ${Math.round(signal.humidity)} percent`],
     "temp-high": [`temp ${Math.round(signal.temperature)}° ↑`, `temperature at ${Math.round(signal.temperature)} degrees`],
-    "temp-low":  [`temp ${Math.round(signal.temperature)}° ↓`, `temperature dropping to ${Math.round(signal.temperature)} degrees`],
-    "wind-high": [`wind ${Math.round(signal.wind)}kn ↑`,     `wind at ${Math.round(signal.wind)} knots`],
-    "rain-high": [`rain ${Math.round(signal.rain)}mm ↑`,     `rainfall at ${Math.round(signal.rain)} millimetres`],
+    "temp-low": [`temp ${Math.round(signal.temperature)}° ↓`, `temperature dropping to ${Math.round(signal.temperature)} degrees`],
+    "wind-high": [`wind ${Math.round(signal.wind)}kn ↑`, `wind at ${Math.round(signal.wind)} knots`],
+    "rain-high": [`rain ${Math.round(signal.rain)}mm ↑`, `rainfall at ${Math.round(signal.rain)} millimetres`],
   };
-  const exitLabels: Record<string, [string, string]> = {
-    "hum-high":  ["hum. clearing",   "humidity normalising"],
-    "hum-low":   ["hum. recovering", "humidity recovering"],
-    "temp-high": ["temp easing",     "temperature easing"],
-    "temp-low":  ["temp rising",     "temperature rising"],
-    "wind-high": ["wind settling",   "wind settling"],
-    "rain-high": ["rain easing",     "rainfall easing"],
+  const exitLabels: Record<string, string> = {
+    "hum-high": "hum. clearing",
+    "hum-low": "hum. recovering",
+    "temp-high": "temp easing",
+    "temp-low": "temp rising",
+    "wind-high": "wind settling",
+    "rain-high": "rain easing",
   };
 
-  const displayParts: string[] = [];
-  const speechParts: string[] = [];
-  for (const z of entered) {
-    const [d, s] = enterLabels[z] ?? [z, z];
-    displayParts.push(d);
-    speechParts.push(s);
-  }
-  for (const z of exited) {
-    const [d, s] = exitLabels[z] ?? [z, z];
-    displayParts.push(d);
-    speechParts.push(s);
+  let entry: { display: string; speech: string } | null = null;
+  if (entered.length > 0) {
+    const displayParts: string[] = [];
+    const speechParts: string[] = [];
+    for (const z of entered) {
+      const [d, s] = enterLabels[z] ?? [z, z];
+      displayParts.push(d);
+      speechParts.push(s);
+    }
+    entry = {
+      display: `${cityName}: ${displayParts.join(", ")}`,
+      speech: `Alert — ${cityName}: ${speechParts.join(", ")}.`
+    };
   }
 
-  return {
-    display: `${cityName}: ${displayParts.join(", ")}`,
-    speech:  `Alert — ${cityName}: ${speechParts.join(", ")}.`
-  };
+  let exit: { display: string } | null = null;
+  if (exited.length > 0) {
+    const displayParts = exited.map(z => exitLabels[z] ?? z);
+    exit = { display: `${cityName}: ${displayParts.join(", ")}` };
+  }
+
+  return { entry, exit };
 }
 
 // Used internally by buildOracleText / createScenarioPreview only.
@@ -310,8 +321,8 @@ function checkCriticalConditions(
     speechParts.push(`rainfall ${Math.round(signal.rain)} millimetres`);
   }
   return {
-    display: `${cityName}: ${displayParts.join(", ")} — volatility`,
-    speech:  `Alert — ${cityName}: ${speechParts.join(", ")}. Market volatility expected.`
+    display: `${cityName}: ${displayParts.join(", ")}.`,
+    speech: `${cityName}: ${speechParts.join(", ")}.`
   };
 }
 
@@ -372,7 +383,7 @@ export function createScenarioPreview(
     primarySignal,
     cityIndex[primary.cityId]?.name ?? primary.cityId
   );
-  
+
   const isCritical = isSignalCritical(primarySignal);
   if (isCritical) {
     primary.severity = "critical";

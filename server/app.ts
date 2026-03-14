@@ -121,23 +121,53 @@ export async function resolveScenarioPreview(
     marketPayload.tickers
   );
 }
+// Add a global lock variable at the top of your app.ts (outside the functions)
+let globalAudioCooldown = 0;
 
 export async function resolveOracleSpeech(
   provider: DataProvider,
   body: OracleSpeakRequest
 ) {
+  const now = Date.now();
   const text = body.text?.trim();
+
   if (!text) {
     throw new Error("text is required");
   }
 
-  const audioUrl = await provider.speak(text);
-  return {
-    text,
-    audioUrl,
-    severity: body.severity ?? "watch",
-    cooldownUntil: new Date(Date.now() + 30_000).toISOString()
-  };
+  // 1. Prevent overlapping: If we are on cooldown, skip this request
+  if (now < globalAudioCooldown) {
+    return {
+      skipped: true, // Frontend can check this flag to know it was ignored
+      message: "Audio is already playing or on cooldown.",
+      cooldownUntil: new Date(globalAudioCooldown).toISOString()
+    };
+  }
+
+  // 2. Lock immediately so concurrent requests in the same millisecond don't overlap
+  globalAudioCooldown = now + 15_000; // Temporary 15s lock while fetching
+
+  try {
+    const audioUrl = await provider.speak(text);
+
+    if (!audioUrl) {
+      throw new Error("Failed to generate audio URL");
+    }
+
+    // 3. Extend the lock to 30 seconds upon success to give the audio time to play
+    globalAudioCooldown = Date.now() + 30_000;
+
+    return {
+      text,
+      audioUrl,
+      severity: body.severity ?? "watch",
+      cooldownUntil: new Date(globalAudioCooldown).toISOString()
+    };
+  } catch (error) {
+    // 4. Release the lock if the ElevenLabs API failed, so we can try again
+    globalAudioCooldown = 0;
+    throw error;
+  }
 }
 
 export function createApp(provider = createDefaultProvider()) {

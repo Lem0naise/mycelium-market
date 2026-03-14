@@ -88,15 +88,18 @@ function App() {
     pushOracleSpeech
   } = useAppStore();
 
-  const { prices, tickPrices, holdings } = useTradingStore();
+  const { prices, tickPrices } = useTradingStore();
 
-  const latestSpeechRef = useRef<string | null>(null);
   const speakMutation = useMutation({ mutationFn: speakOracle });
   const audioContextRef = useRef<AudioContext | null>(null);
   // Tracks which threshold zones were active per city on the previous tick.
   // undefined = not yet initialised (first observation — no alert fired).
   const prevZonesByCityRef = useRef<Record<string, Set<string>>>({});
   const oracleFlashTimeoutRef = useRef<number | null>(null);
+  // Refs so the interval callback always reads the latest speaking state
+  // without needing them as deps (which would reset the interval).
+  const isOracleSpeakingRef = useRef(false);
+  const speakPendingRef = useRef(false);
 
   // Unlock AudioContext on user interaction — must happen before first audio play
   const unlockAudioContext = () => {
@@ -109,11 +112,16 @@ function App() {
   };
 
   // Play a base64 data: URL through the pre-unlocked AudioContext
-  const playBase64Audio = async (dataUrl: string) => {
+  const playBase64Audio = async (dataUrl?: string | null) => {
+    // 1. Add this safety check!
+    if (!dataUrl || !dataUrl.includes(",")) {
+      setIsOracleSpeaking(false);
+      return;
+    }
+
     try {
       const ctx = audioContextRef.current;
       if (!ctx) {
-        // Fallback — will likely be blocked by autoplay policy but worth trying
         const audio = new Audio(dataUrl);
         audio.onplay = () => setIsOracleSpeaking(true);
         audio.onended = () => setIsOracleSpeaking(false);
@@ -137,6 +145,8 @@ function App() {
       source.buffer = audioBuffer;
       source.connect(ctx.destination);
       source.onended = () => setIsOracleSpeaking(false);
+
+      // Lock state BEFORE starting playback
       setIsOracleSpeaking(true);
       source.start();
     } catch (e) {
@@ -228,86 +238,91 @@ function App() {
     };
   }, []);
 
-  // Automated Oracle speech effect
-  useEffect(() => {
-    if (!ORACLE_ENABLED) return;
-    if (!audioEnabled || !previewQuery.data) return;
-
-    const { primary, oracleText } = previewQuery.data;
-
-    if (primary.severity !== "critical") return;
-    if (latestSpeechRef.current === oracleText || speakMutation.isPending || isOracleSpeaking) return;
-
-    latestSpeechRef.current = oracleText;
-    speakMutation.mutate(
-      { text: oracleText, severity: primary.severity },
-      {
-        onSuccess: async (speech) => {
-          pushOracleSpeech(speech);
-          if (!speech.audioUrl) {
-            console.warn("Oracle: no audioUrl returned — check ELEVENLABS_API_KEY / ELEVENLABS_VOICE_ID");
-            return;
-          }
-          await playBase64Audio(speech.audioUrl);
-        }
-      }
-    );
-  }, [audioEnabled, previewQuery.data, pushOracleSpeech, speakMutation, isOracleSpeaking]);
+  // Keep speaking-state refs in sync so the interval callback can read them
+  // without taking them as deps (which would reset the interval on every state change).
+  useEffect(() => { isOracleSpeakingRef.current = isOracleSpeaking; }, [isOracleSpeaking]);
+  useEffect(() => { speakPendingRef.current = speakMutation.isPending; }, [speakMutation.isPending]);
 
   // Multi-city oracle scanning — fires alerts only for cities where the user
-  // has stock holdings AND is NOT currently visiting that city
+  // has stock holdings AND is NOT currently visiting that city.
+  // Runs on a fixed 5 s clock, independent of React Query refresh cycle.
   useEffect(() => {
     if (!ORACLE_ENABLED || !audioEnabled) return;
-    if (!signals.length) return;
 
-    for (const signal of signals) {
-      // Skip the city the user is currently in
-      if (signal.cityId === selectedCityId) continue;
+    const scan = () => {
+      // Snapshot latest signals from the query cache
+      const latestSignals: typeof signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
+      if (!latestSignals.length) return;
 
-      // Skip cities where the user holds no positions
-      const cityHoldings = holdings[signal.cityId] ?? {};
-      const hasHoldings = Object.values(cityHoldings).some(qty => qty > 0);
-      if (!hasHoldings) continue;
+      const latestHoldings = useTradingStore.getState().holdings;
 
-      // Get current zones and compare with previous to detect crossings
-      const currZones = getConditionZones(signal);
-      const prevZones = prevZonesByCityRef.current[signal.cityId];
+      for (const signal of latestSignals) {
+        // Skip the city the user is currently in
+        if (signal.cityId === selectedCityId) continue;
 
-      // First observation — initialise zones without firing an alert
-      if (prevZones === undefined) {
+        // Skip cities where the user holds no positions
+        const cityHoldings = latestHoldings[signal.cityId] ?? {};
+        const hasHoldings = Object.values(cityHoldings).some(qty => qty > 0);
+        if (!hasHoldings) continue;
+
+        const currZones = getConditionZones(signal);
+        const prevZones = prevZonesByCityRef.current[signal.cityId];
+
+        // First observation — initialise zones silently, don't fire anything
+        if (prevZones === undefined) {
+          prevZonesByCityRef.current[signal.cityId] = currZones;
+          continue;
+        }
+
+        const cityName = cityIndex[signal.cityId]?.name ?? signal.cityId;
+        const crossing = checkBoundaryCrossings(prevZones, currZones, signal, cityName);
+
+        // Always update stored zones before acting on the result
         prevZonesByCityRef.current[signal.cityId] = currZones;
-        continue;
-      }
 
-      const cityName = cityIndex[signal.cityId]?.name ?? signal.cityId;
-      const result = checkBoundaryCrossings(prevZones, currZones, signal, cityName);
+        if (!crossing) continue;
 
-      // Always update stored zones before checking result
-      prevZonesByCityRef.current[signal.cityId] = currZones;
+        // Zone EXIT → push a calm feed item, no speech
+        if (crossing.exit) {
+          setFeed([{
+            id: `${signal.cityId}-exit-${Date.now()}`,
+            title: "Conditions easing",
+            body: crossing.exit.display,
+            cityId: signal.cityId,
+            severity: "calm",
+            kind: "environment",
+            timestamp: new Date().toISOString()
+          }]);
+        }
 
-      if (!result) continue;
+        // Zone ENTRY → green flash + speak (if oracle is free)
+        if (crossing.entry) {
+          if (oracleFlashTimeoutRef.current !== null) clearTimeout(oracleFlashTimeoutRef.current);
+          setOracleFlash(true);
+          oracleFlashTimeoutRef.current = window.setTimeout(() => setOracleFlash(false), 1500);
 
-      // Trigger green flash
-      if (oracleFlashTimeoutRef.current !== null) clearTimeout(oracleFlashTimeoutRef.current);
-      setOracleFlash(true);
-      oracleFlashTimeoutRef.current = window.setTimeout(() => setOracleFlash(false), 1500);
-
-      // Speak — only when no other oracle speech is queued or playing
-      if (!speakMutation.isPending && !isOracleSpeaking) {
-        speakMutation.mutate(
-          { text: result.speech, severity: "critical" },
-          {
-            onSuccess: async (speech) => {
-              pushOracleSpeech(speech);
-              if (speech.audioUrl) await playBase64Audio(speech.audioUrl);
-            }
+          if (!isOracleSpeakingRef.current && !speakPendingRef.current) {
+            speakMutation.mutate(
+              { text: crossing.entry.speech, severity: "critical" },
+              {
+                onSuccess: async (speech) => {
+                  pushOracleSpeech(speech);
+                  if (speech.audioUrl) await playBase64Audio(speech.audioUrl);
+                }
+              }
+            );
           }
-        );
-      }
+        }
 
-      break; // Queue one alert at a time; remainder will catch up next tick
-    }
-  }, [signals, selectedCityId, holdings, audioEnabled, isOracleSpeaking, speakMutation.isPending]);
+        break; // Queue one alert at a time; remainder will catch up next tick
+      }
+    };
+
+    // Run immediately, then every 5 s
+    scan();
+    const intervalId = window.setInterval(scan, 5_000);
+    return () => window.clearInterval(intervalId);
+  }, [audioEnabled, selectedCityId, previewQuery.data, signalsQuery.data]);
 
   // Background price tick effect
   useEffect(() => {
