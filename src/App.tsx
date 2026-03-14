@@ -849,44 +849,77 @@ function App() {
             position: "absolute",
             left: "50%",
             transform: "translateX(-50%)",
-            textAlign: "center",
+            display: "flex",
+            alignItems: "center",
+            gap: "28px",
             pointerEvents: "none",
             userSelect: "none"
           }}
         >
-          <span
-            style={{
-              display: "block",
-              fontSize: "0.62rem",
-              fontWeight: "bold",
-              letterSpacing: "0.15em",
-              textTransform: "uppercase",
-              color: "var(--text-muted)",
-              marginBottom: "4px"
-            }}
-          >
-            Planetary Cycle
-          </span>
-          <div
-            style={{
-              fontSize: "clamp(1.6rem, 2.4vw, 2.8rem)",
-              fontWeight: "bold",
-              letterSpacing: "-0.03em",
-              lineHeight: 1,
-              color: "var(--text)"
-            }}
-          >
-            {fictionalDayName}
+          <div style={{ textAlign: "right" }}>
+            <span
+              style={{
+                display: "block",
+                fontSize: "0.62rem",
+                fontWeight: "bold",
+                letterSpacing: "0.15em",
+                textTransform: "uppercase",
+                color: "var(--text-muted)",
+                marginBottom: "4px"
+              }}
+            >
+              Current Base
+            </span>
+            <div
+              style={{
+                fontSize: "clamp(1rem, 1.6vw, 1.4rem)",
+                fontWeight: "bold",
+                letterSpacing: "-0.02em",
+                lineHeight: 1,
+                color: "var(--text)"
+              }}
+            >
+              {cityIndex[currentCityId]?.name ?? currentCityId}
+            </div>
           </div>
-          <div
-            style={{
-              fontSize: "0.78rem",
-              color: "var(--text-muted)",
-              marginTop: "5px",
-              letterSpacing: "0.05em"
-            }}
-          >
-            Week {fictionalWeek} · Cycle {fictionalYear}
+
+          <div style={{ width: "1px", height: "36px", background: "var(--border)" }} />
+
+          <div style={{ textAlign: "center" }}>
+            <span
+              style={{
+                display: "block",
+                fontSize: "0.62rem",
+                fontWeight: "bold",
+                letterSpacing: "0.15em",
+                textTransform: "uppercase",
+                color: "var(--text-muted)",
+                marginBottom: "4px"
+              }}
+            >
+              Planetary Cycle
+            </span>
+            <div
+              style={{
+                fontSize: "clamp(1.6rem, 2.4vw, 2.8rem)",
+                fontWeight: "bold",
+                letterSpacing: "-0.03em",
+                lineHeight: 1,
+                color: "var(--text)"
+              }}
+            >
+              {fictionalDayName}
+            </div>
+            <div
+              style={{
+                fontSize: "0.78rem",
+                color: "var(--text-muted)",
+                marginTop: "5px",
+                letterSpacing: "0.05em"
+              }}
+            >
+              Week {fictionalWeek} · Cycle {fictionalYear}
+            </div>
           </div>
         </div>
 
@@ -929,6 +962,7 @@ function App() {
                     blockedCityIds={[...blockedCityIds]}
                     flight={flight}
                     onSelectCity={setFocusedCity}
+                    onStartFlight={handleStartFlight}
                     onStageChange={(stage) => advanceLoadStage(stage)}
                     onInteractive={() => {
                       advanceLoadStage("interactive");
@@ -1043,37 +1077,6 @@ function App() {
                       </ul>
                     )}
 
-                    {/* Divider */}
-                    <div style={{ borderTop: "1px solid var(--border)", margin: "12px 0" }} />
-
-                    {/* Focused city & flight info */}
-                    <span className="eyebrow">Focused city — click globe to inspect</span>
-                    <strong>{cityIndex[focusedCityId]?.name}</strong>
-                    <p>{scenarioSnapshot?.oracleText ?? "Waiting for planetary repricing."}</p>
-                    <div className="overlay-location-meta">
-                      <span>Current base: {cityIndex[currentCityId]?.name}</span>
-                      <span>
-                        {blockedCityIds.has(focusedCityId)
-                          ? "Destination sits inside the amber no-fly surface"
-                          : "Airspace open"}
-                      </span>
-                    </div>
-                    <div className="overlay-no-fly-panel">
-                      <span className="eyebrow">Airspace Surface</span>
-                      <p>
-                        Only the amber storm footprint painted on the globe is blocked. If a city sits
-                        inside that surface, you cannot depart or arrive there.
-                      </p>
-                    </div>
-                    {flight ? (
-                      <div className="overlay-flight-chip">
-                        {flight.isReturningHome
-                          ? `Auto-return to ${cityIndex[flight.toCityId]?.name ?? flight.toCityId} — ETA ${(flight.remainingMs / 1000).toFixed(1)}s`
-                          : flight.phase === "holding"
-                            ? `Storm wall reached. Turning back to ${cityIndex[flight.fromCityId]?.name ?? flight.fromCityId}.`
-                            : `ETA ${(flight.remainingMs / 1000).toFixed(1)}s`}
-                      </div>
-                    ) : null}
                   </>
                 );
               })()}
@@ -1091,9 +1094,7 @@ function App() {
             currentCityId={currentCityId}
             blockedCityIds={[...blockedCityIds]}
             flight={flight}
-            travelDisabledReason={travelDisabledReason}
             onSelectAsset={setAsset}
-            onStartFlight={handleStartFlight}
           />
         </motion.div>
       </main>

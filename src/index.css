@@ -830,6 +830,43 @@ button {
   }
 }
 
+.city-fly-popup {
+  min-width: 3rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid rgba(100, 220, 160, 0.5);
+  background: rgba(100, 220, 160, 0.18);
+  color: #64dcaa;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.65rem;
+  font-weight: bold;
+  text-align: center;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.35),
+    0 0 18px rgba(100, 220, 160, 0.15);
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.city-fly-popup:hover {
+  background: rgba(100, 220, 160, 0.3);
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.4),
+    0 0 24px rgba(100, 220, 160, 0.3);
+}
+
+.city-fly-popup.is-blocked {
+  border-color: rgba(255, 100, 80, 0.45);
+  background: rgba(255, 100, 80, 0.14);
+  color: #ff6450;
+  cursor: default;
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.35),
+    0 0 18px rgba(255, 100, 80, 0.1);
+}
+
 .controls-panel {
   display: grid;
   gap: 1rem;

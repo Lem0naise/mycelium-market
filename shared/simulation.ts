@@ -198,7 +198,7 @@ export function createStormSystems(seed: number) {
         originLon: randomBetween(random, -180, 180),
         radiusDeg: randomBetween(random, 12, 20),
         driftHeadingDeg: heading,
-        driftSpeedDegPerSec: randomBetween(random, 0.09, 0.22),
+        driftSpeedDegPerSec: randomBetween(random, 0.7, 0.92),
         latWaveAmplitude: randomBetween(random, 2.5, 7),
         lonWaveAmplitude: randomBetween(random, 4.5, 14),
         latWaveSpeed: randomBetween(random, 0.04, 0.11),

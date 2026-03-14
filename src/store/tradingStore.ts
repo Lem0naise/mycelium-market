@@ -141,7 +141,6 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       return { ok: false, reason: "insufficient-cash" };
     }
 
-    const priceImpact = 1 + 0.005 * quantity;
     set((currentState) => ({
       cash: currentState.cash - cost,
       holdings: {
@@ -149,13 +148,6 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
         [cityId]: {
           ...currentState.holdings[cityId],
           [assetId]: (currentState.holdings[cityId]?.[assetId] || 0) + quantity
-        }
-      },
-      prices: {
-        ...currentState.prices,
-        [cityId]: {
-          ...currentState.prices[cityId],
-          [assetId]: currentState.prices[cityId][assetId] * priceImpact
         }
       }
     }));
@@ -205,7 +197,6 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
     }
 
     const revenue = price * quantity;
-    const priceImpact = 1 - 0.005 * quantity;
 
     set((currentState) => ({
       cash: currentState.cash + revenue,
@@ -214,13 +205,6 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
         [cityId]: {
           ...currentState.holdings[cityId],
           [assetId]: currentHoldings - quantity
-        }
-      },
-      prices: {
-        ...currentState.prices,
-        [cityId]: {
-          ...currentState.prices[cityId],
-          [assetId]: Math.max(0.01, currentState.prices[cityId][assetId] * priceImpact)
         }
       }
     }));
@@ -242,11 +226,15 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
 
       Object.keys(newCityPrices).forEach((assetId) => {
         const delta = earthDeltas[assetId] || 0;
-        const baseMultiplier = 1 + delta * 0.001;
-        const volatility = 1 + (Math.random() - 0.5) * 0.005;
+        // Environmental drive: earthDelta is positive when conditions favour the
+        // asset (signal above centre for +weight, below for -weight) and negative
+        // when they don't. Use a stronger multiplier so the trend is clearly
+        // visible, with only a tiny sprinkle of randomness.
+        const baseMultiplier = 1 + delta * 0.003;
+        const noise = 1 + (Math.random() - 0.5) * 0.001;
 
         const oldPrice = newCityPrices[assetId];
-        const newPrice = Math.max(0.01, oldPrice * baseMultiplier * volatility);
+        const newPrice = Math.max(0.01, oldPrice * baseMultiplier * noise);
         newCityPrices[assetId] = newPrice;
 
         const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;

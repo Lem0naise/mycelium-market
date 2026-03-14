@@ -34,6 +34,7 @@ type GlobeSceneProps = {
   onStageChange?: (stage: GlobeRenderStage) => void;
   onInteractive?: () => void;
   onSelectCity?: (cityId: string) => void;
+  onStartFlight?: () => void;
 };
 
 type MapLabel = {
@@ -551,6 +552,74 @@ function FlightMarker({
   );
 }
 
+function CityFlyPopup({
+  globe,
+  focusedCityId,
+  currentCityId,
+  blockedCityIds,
+  flight,
+  onStartFlight
+}: {
+  globe: ThreeGlobe;
+  focusedCityId: string;
+  currentCityId: string;
+  blockedCityIds: string[];
+  flight: FlightState | null;
+  onStartFlight?: () => void;
+}) {
+  const globeScale = useMemo(() => baseRadius / globe.getGlobeRadius(), [globe]);
+  const anchorRef = useRef<THREE.Group | null>(null);
+  const chipRef = useRef<HTMLDivElement | null>(null);
+  const camera = useThree((state) => state.camera);
+  const worldPosition = useMemo(() => new THREE.Vector3(), []);
+  const normal = useMemo(() => new THREE.Vector3(), []);
+  const toCamera = useMemo(() => new THREE.Vector3(), []);
+
+  useFrame((state) => {
+    if (state.clock.elapsedTime % (1 / 20) > 0.01) return;
+    const anchor = anchorRef.current;
+    const chip = chipRef.current;
+    if (!anchor || !chip) return;
+    anchor.getWorldPosition(worldPosition);
+    normal.copy(worldPosition).normalize();
+    toCamera.copy(camera.position).sub(worldPosition).normalize();
+    const isVisible = normal.dot(toCamera) > -0.06;
+    chip.style.opacity = isVisible ? "1" : "0";
+    chip.style.visibility = isVisible ? "visible" : "hidden";
+  });
+
+  if (focusedCityId === currentCityId) return null;
+
+  const focusedCity = cityIndex[focusedCityId];
+  if (!focusedCity) return null;
+
+  const isBlocked =
+    blockedCityIds.includes(focusedCityId) ||
+    blockedCityIds.includes(currentCityId) ||
+    Boolean(flight);
+
+  const coords = globe.getCoords(focusedCity.lat, focusedCity.lon, 0.32);
+  const position = new THREE.Vector3(
+    coords.x * globeScale,
+    coords.y * globeScale,
+    coords.z * globeScale
+  );
+
+  return (
+    <group ref={anchorRef} position={position}>
+      <Html center distanceFactor={10.2} sprite>
+        <div
+          ref={chipRef}
+          className={isBlocked ? "city-fly-popup is-blocked" : "city-fly-popup"}
+          onClick={isBlocked ? undefined : onStartFlight}
+        >
+          {isBlocked ? "⊘ NO-FLY" : "FLY"}
+        </div>
+      </Html>
+    </group>
+  );
+}
+
 function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeRenderStage }) {
   const camera = useThree((state) => state.camera);
   const countryPolygons = useMemo(() => getCountryPolygons(), []);
@@ -687,6 +756,14 @@ function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeRenderStage })
         blockedCityIds={props.blockedCityIds}
         detailStage={props.detailStage}
         onSelectCity={props.onSelectCity}
+      />
+      <CityFlyPopup
+        globe={globe}
+        focusedCityId={props.focusedCityId}
+        currentCityId={props.currentCityId}
+        blockedCityIds={props.blockedCityIds}
+        flight={props.flight}
+        onStartFlight={props.onStartFlight}
       />
       {showSignalLayers ? <StormFootprints globe={globe} storms={visualStorms} /> : null}
       <FlightMarker globe={globe} flight={visualFlight} />

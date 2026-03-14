@@ -6,7 +6,6 @@ import type {
   EnvironmentalSignal,
   FlightState,
   MarketTicker,
-  RankedCity,
   ScenarioSnapshot,
   SignalKey,
   TradeFailureReason
@@ -21,9 +20,7 @@ type MarketPanelProps = {
   currentCityId: string;
   blockedCityIds: string[];
   flight: FlightState | null;
-  travelDisabledReason: string | null;
   onSelectAsset?: (assetId: string) => void;
-  onStartFlight?: () => void;
 };
 
 const formatGBP = (value: number) =>
@@ -64,30 +61,6 @@ const tradeFailureCopy: Record<TradeFailureReason, string> = {
   "mycelium-oversaturated": "Humidity is oversaturating the mycelium network."
 };
 
-function CityLeaderboard({
-  rankings,
-  blockedCityIds
-}: {
-  rankings: RankedCity[];
-  blockedCityIds: string[];
-}) {
-  return (
-    <div className="leaderboard">
-      <div className="panel-topline">
-        <span className="eyebrow">Travel</span>
-        <span className="status-pill">LIVE</span>
-      </div>
-      {rankings.slice(0, 5).map((item, index) => (
-        <div key={item.cityId} className="leader-row">
-          <span>{String(index + 1).padStart(2, "0")}</span>
-          <strong>{cityIndex[item.cityId]?.name ?? item.cityId}</strong>
-          <span>{blockedCityIds.includes(item.cityId) ? "NO-FLY" : item.travelScore}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function MarketPanel({
   tickers,
   snapshot,
@@ -97,9 +70,7 @@ export function MarketPanel({
   currentCityId,
   blockedCityIds,
   flight,
-  travelDisabledReason,
   onSelectAsset,
-  onStartFlight
 }: MarketPanelProps) {
   const { cash, holdings, prices, buyAsset, sellAsset, resetPortfolio, signalHistory } = useTradingStore();
 
@@ -122,10 +93,7 @@ export function MarketPanel({
     currentMycelium.humidity
   );
   const isFocusedCityBlocked = blockedCityIds.includes(focusedCityId);
-  const isCurrentCityBlocked = blockedCityIds.includes(currentCityId);
   const isLocalTradingWindow = focusedCityId === currentCityId && !flight;
-  const blockedRouteCityId = flight?.isReturningHome ? flight.fromCityId : flight?.toCityId;
-  const homeCityId = flight?.isReturningHome ? flight.toCityId : flight?.fromCityId;
 
   const primaryDriver = (Object.entries(asset.ecologicalWeights) as [SignalKey, number][])
     .find(([, weight]) => weight !== 0);
@@ -133,10 +101,7 @@ export function MarketPanel({
   const driverWeight = primaryDriver?.[1] ?? 0;
   const driverMeta = driverKey ? SIGNAL_META[driverKey] : null;
   const driverValue = driverKey && focusedSignal ? focusedSignal[driverKey] : null;
-  const driverHistoryArr = driverKey ? signalHistory[focusedCityId]?.[driverKey] ?? [] : [];
-  const driverRef = driverHistoryArr.length
-    ? driverHistoryArr.reduce((sum, value) => sum + value, 0) / driverHistoryArr.length
-    : driverMeta?.center ?? 0;
+  const driverRef = driverMeta?.center ?? 0;
   const driverAboveRef = driverValue !== null && driverValue > driverRef;
   const isBullish =
     driverValue !== null &&
@@ -183,85 +148,19 @@ export function MarketPanel({
           <strong>
             {formatGBP(
               cash +
-                Object.entries(holdings).reduce((sum, [cityId, cityHoldings]) => {
-                  return (
-                    sum +
-                    Object.entries(cityHoldings).reduce((citySum, [assetId, quantity]) => {
-                      const livePrice = prices[cityId]?.[assetId] ?? assetIndex[assetId].basePrice;
-                      return citySum + livePrice * quantity;
-                    }, 0)
-                  );
-                }, 0)
+              Object.entries(holdings).reduce((sum, [cityId, cityHoldings]) => {
+                return (
+                  sum +
+                  Object.entries(cityHoldings).reduce((citySum, [assetId, quantity]) => {
+                    const livePrice = prices[cityId]?.[assetId] ?? assetIndex[assetId].basePrice;
+                    return citySum + livePrice * quantity;
+                  }, 0)
+                );
+              }, 0)
             )}
           </strong>
         </div>
       </div>
-
-      <section className="travel-panel">
-        <div className="panel-topline">
-          <span className="eyebrow">Flight Deck</span>
-          <span className="status-pill accent">
-            {flight ? (flight.isReturningHome ? "returning" : flight.phase) : "grounded"}
-          </span>
-        </div>
-        <div className="travel-card">
-          <div>
-            <span>Current city</span>
-            <strong>{currentCity?.name ?? currentCityId}</strong>
-          </div>
-          <div>
-            <span>Focused city</span>
-            <strong>{focusedCity?.name ?? focusedCityId}</strong>
-          </div>
-          <div>
-            <span>Airspace</span>
-            <strong>
-              {isCurrentCityBlocked
-                ? "Departure stormed"
-                : isFocusedCityBlocked
-                  ? "Destination stormed"
-                  : "Open"}
-            </strong>
-          </div>
-        </div>
-        <button
-          className="action-btn flight-btn"
-          onClick={onStartFlight}
-          disabled={Boolean(travelDisabledReason) || focusedCityId === currentCityId}
-        >
-          {flight
-            ? flight.isReturningHome
-              ? `Returning ${(flight.remainingMs / 1000).toFixed(1)}s`
-              : flight.phase === "holding"
-                ? "Turning Back"
-                : `Flying ${(flight.remainingMs / 1000).toFixed(1)}s`
-            : focusedCityId === currentCityId
-              ? "Already Here"
-              : `Fly To ${focusedCity?.name ?? focusedCityId}`}
-        </button>
-        <p className="muted" style={{ marginTop: "8px" }}>
-          {travelDisabledReason ??
-            (focusedCityId === currentCityId
-              ? "Inspect another city on the globe to plan a flight."
-              : `Travel time: ${((snapshot?.rankings.find((city) => city.cityId === focusedCityId)?.travelScore ?? 50) / 10).toFixed(1)} tactical units.`)}
-        </p>
-        {flight?.isReturningHome || flight?.phase === "holding" ? (
-          <div className="hold-panel">
-            <span>
-              The visible amber no-fly surface cut off the route to{" "}
-              {cityIndex[blockedRouteCityId ?? ""]?.name ?? blockedRouteCityId}. The aircraft is
-              automatically returning to {cityIndex[homeCityId ?? ""]?.name ?? homeCityId}.
-            </span>
-          </div>
-        ) : null}
-        <div className="no-fly-list-panel">
-          <span className="eyebrow">Airspace Legend</span>
-          <p className="muted" style={{ margin: 0 }}>
-            Amber storm footprints painted onto the globe are the exact surfaces you cannot fly
-            through. City ripples are removed so only the footprint matters.
-          </p>
-        </div>
-      </section>
 
       <div className="panel-topline">
         <span className="eyebrow">Market Board</span>
@@ -271,7 +170,7 @@ export function MarketPanel({
           const profile = assetIndex[ticker.assetId];
           const tokenDriver = profile
             ? (Object.entries(profile.ecologicalWeights) as [SignalKey, number][])
-                .find(([, weight]) => weight !== 0)
+              .find(([, weight]) => weight !== 0)
             : null;
           const driverShortLabel = tokenDriver
             ? DRIVER_LABEL[tokenDriver[0]] ?? SIGNAL_META[tokenDriver[0]].label
@@ -329,9 +228,8 @@ export function MarketPanel({
               padding: "12px 14px",
               borderRadius: "8px",
               background: isBullish ? "rgba(76,175,80,0.08)" : "rgba(255,77,77,0.08)",
-              border: `1px solid ${
-                isBullish ? "rgba(76,175,80,0.3)" : "rgba(255,77,77,0.3)"
-              }`,
+              border: `1px solid ${isBullish ? "rgba(76,175,80,0.3)" : "rgba(255,77,77,0.3)"
+                }`,
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between"
@@ -418,12 +316,6 @@ export function MarketPanel({
           </div>
         </div>
 
-        {!isLocalTradingWindow ? (
-          <p className="muted" style={{ marginBottom: "10px" }}>
-            Trading is unlocked only when your current city matches the focused market and you are
-            not airborne.
-          </p>
-        ) : null}
         {!mycStatus.allOk ? (
           <p className="muted" style={{ marginBottom: "10px" }}>
             The mycelium network at {currentCity?.name ?? currentCityId} is outside its safe range,
@@ -536,27 +428,6 @@ export function MarketPanel({
           </div>
         ) : (
           <p className="muted">Waiting for live ecological data.</p>
-        )}
-
-        {snapshot ? (
-          <>
-            <div className="hero-metric">
-              <div>
-                <span>Earth Delta</span>
-                <strong className={snapshot.primary.earthDelta >= 0 ? "up" : "down"}>
-                  {snapshot.primary.earthDelta >= 0 ? "+" : ""}
-                  {snapshot.primary.earthDelta}
-                </strong>
-              </div>
-              <div>
-                <span>Storm Risk</span>
-                <strong>{isFocusedCityBlocked ? "BLOCKED" : "CLEAR"}</strong>
-              </div>
-            </div>
-            <CityLeaderboard rankings={snapshot.rankings} blockedCityIds={blockedCityIds} />
-          </>
-        ) : (
-          <p className="muted">Computing planetary spread...</p>
         )}
       </section>
     </aside>

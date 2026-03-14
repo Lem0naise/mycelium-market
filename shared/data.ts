@@ -142,6 +142,26 @@ export const cities: CityProfile[] = [
     }
   },
   {
+    id: "southamton",
+    name: "Southampton",
+    country: "United Kingdom",
+    region: "Europe",
+    lat: 50.91825,
+    lon: -1.39524,
+    timezone: "Europe",
+    accentColor: "#96a26dff",
+    tags: ["commodities"],
+    baselines: {
+      humidity: 64,
+      rain: 61,
+      temperature: 15,
+      wind: 34,
+      airQuality: 66,
+      soilMoisture: 53,
+      soilPh: 6.5
+    }
+  },
+  {
     id: "santiago",
     name: "Santiago",
     country: "Chile",
