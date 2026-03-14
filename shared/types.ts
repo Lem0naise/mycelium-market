@@ -115,6 +115,13 @@ export type StormSystem = {
   originLat: number;
   originLon: number;
   radiusDeg: number;
+  velocityLat: number;
+  velocityLon: number;
+  targetCityId: string | null;
+  targetAssignedAtMs: number;
+  targetExpiresAtMs: number;
+  lastHitCityId: string | null;
+  lastHitAtMs: number | null;
   driftHeadingDeg: number;
   driftSpeedDegPerSec: number;
   latWaveAmplitude: number;

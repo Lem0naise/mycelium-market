@@ -1,25 +1,45 @@
 import { describe, expect, it } from "vitest";
 import { cityIndex } from "../shared/data";
-import { createFallbackSignals } from "../shared/oracle";
 import {
+  angularDistanceDegrees,
   applyStormEffectsToSignals,
   buildStormSnapshots,
   createFlightState,
   createReturnFlightState,
   createStormSystems,
-  findFlightHoldProgress
+  findFlightHoldProgress,
+  initializeStormSystems,
+  simulateStormField
 } from "../shared/simulation";
 import type { EnvironmentalSignal, StormSnapshot } from "../shared/types";
 
 describe("storm and flight simulation", () => {
-  it("creates stable session storms that stay within bounds and move over time", () => {
+  it("creates stable session storms that spawn evenly across hemispheres and move over time", () => {
     const systemsA = createStormSystems(42);
     const systemsB = createStormSystems(42);
     const startSnapshots = buildStormSnapshots(systemsA, 0);
     const laterSnapshots = buildStormSnapshots(systemsA, 8_000);
+    const northCount = systemsA.filter((storm) => storm.originLat > 0).length;
+    const southCount = systemsA.filter((storm) => storm.originLat < 0).length;
 
     expect(systemsA).toEqual(systemsB);
     expect(startSnapshots).toHaveLength(6);
+    expect(northCount).toBe(3);
+    expect(southCount).toBe(3);
+
+    const minimumSeparation = systemsA.reduce((best, storm, index) => {
+      const nextBest = systemsA.slice(index + 1).reduce((innerBest, compareStorm) => {
+        const separation = angularDistanceDegrees(
+          { lat: storm.originLat, lon: storm.originLon },
+          { lat: compareStorm.originLat, lon: compareStorm.originLon }
+        );
+        return Math.min(innerBest, separation);
+      }, Infinity);
+
+      return Math.min(best, nextBest);
+    }, Infinity);
+
+    expect(minimumSeparation).toBeGreaterThan(32);
 
     startSnapshots.forEach((storm, index) => {
       expect(storm.lat).toBeGreaterThanOrEqual(-65);
@@ -31,6 +51,26 @@ describe("storm and flight simulation", () => {
         laterSnapshots[index].lat !== storm.lat || laterSnapshots[index].lon !== storm.lon
       ).toBe(true);
     });
+  });
+
+  it("pushes nearby storms apart before their footprints overlap", () => {
+    const systems = initializeStormSystems(84);
+    const earlyField = simulateStormField(systems, 10_000);
+    const laterField = simulateStormField(systems, 30_000);
+
+    const earliestDistance = angularDistanceDegrees(
+      { lat: earlyField.states[0].lat, lon: earlyField.states[0].lon },
+      { lat: earlyField.states[1].lat, lon: earlyField.states[1].lon }
+    );
+    const laterDistance = angularDistanceDegrees(
+      { lat: laterField.states[0].lat, lon: laterField.states[0].lon },
+      { lat: laterField.states[1].lat, lon: laterField.states[1].lon }
+    );
+    const minimumAllowed =
+      systems[0].radiusDeg + systems[1].radiusDeg + 5.5;
+
+    expect(earliestDistance).toBeGreaterThan(minimumAllowed);
+    expect(laterDistance).toBeGreaterThan(minimumAllowed);
   });
 
   it("applies the strongest ecological pressure at the storm core", () => {
@@ -94,6 +134,41 @@ describe("storm and flight simulation", () => {
         ).toBe(true);
       });
     });
+  });
+
+  it("assigns target cities, penalises clustering, and records recent hits", () => {
+    const systems = createStormSystems(101);
+    const field = simulateStormField(systems, 140_000);
+    const targetCities = field.states
+      .map((storm) => storm.targetCityId)
+      .filter((cityId): cityId is string => Boolean(cityId));
+    const uniqueTargets = new Set(targetCities);
+
+    expect(targetCities).toHaveLength(6);
+    expect(uniqueTargets.size).toBeGreaterThanOrEqual(4);
+    expect(Object.keys(field.recentHits).length).toBeGreaterThan(0);
+  });
+
+  it("leans storms into cities often enough to create repeat pressure over time", () => {
+    const systems = createStormSystems(202);
+    const blockedCities = new Set<string>();
+
+    for (let elapsedMs = 0; elapsedMs <= 180_000; elapsedMs += 15_000) {
+      buildStormSnapshots(systems, elapsedMs).forEach((storm) => {
+        Object.entries(cityIndex).forEach(([cityId, city]) => {
+          const distance = angularDistanceDegrees(
+            { lat: storm.lat, lon: storm.lon },
+            { lat: city.lat, lon: city.lon }
+          );
+
+          if (distance <= storm.radiusDeg) {
+            blockedCities.add(cityId);
+          }
+        });
+      });
+    }
+
+    expect(blockedCities.size).toBeGreaterThanOrEqual(5);
   });
 
   it("scales flight times by distance and detects storm holds on the route", () => {
