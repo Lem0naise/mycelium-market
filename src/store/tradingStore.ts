@@ -27,8 +27,8 @@ export type TradingState = {
     mycelium: MyceliumSignal,
     quantity?: number
   ) => Promise<TradeResult>;
-  tickAllPrices: (updates: Array<{cityId: string; earthDeltas: Record<string, number>; mycelium?: MyceliumSignal}>) => void;
-  recordAllSignals: (updates: Array<{cityId: string; signals: Partial<Record<SignalKey, number>>}>) => void;
+  tickAllPrices: (updates: Array<{ cityId: string; earthDeltas: Record<string, number>; mycelium?: MyceliumSignal }>) => void;
+  recordAllSignals: (updates: Array<{ cityId: string; signals: Partial<Record<SignalKey, number>> }>) => void;
   resetPortfolio: () => void;
 };
 
@@ -315,7 +315,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
         const newCityPriceHistory = { ...newPriceHistory[cityId] };
 
         const pH = mycelium?.soilPh ?? 6.5;
-        const pHVolatilityFactor = pH < 5.5 ? 5 : pH > 7.5 ? 0.2 : 1;
+        const pHVolatilityFactor = pH < 5.5 ? 2 : pH > 7.5 ? 0.5 : 1; // VOLATILITY OF PH of soil
 
         Object.keys(newCityPrices).forEach((assetId) => {
           const delta = earthDeltas[assetId] || 0;
