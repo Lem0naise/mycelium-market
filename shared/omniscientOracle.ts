@@ -158,8 +158,7 @@ function isMyceliumOpen(signal: EnvironmentalSignal) {
     signal.soilPh >= 5 &&
     signal.soilPh <= 8 &&
     signal.humidity >= 25 &&
-    signal.humidity <= 88
-  );
+    signal.humidity <= 80);
 }
 
 function buildPortfolioState(

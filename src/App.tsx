@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchMarkets, speakOracle } from "./api";
 import { FeedPanel } from "./components/FeedPanel";
 import { MarketPanel } from "./components/MarketPanel";
-import { MyceliumWidget } from "./components/MyceliumWidget";
+import { MyceliumWidget, EnvironmentalEffectsPanel } from "./components/MyceliumWidget";
 import { assetProfiles, cities, cityIndex } from "../shared/data";
 import {
   createInitialOracleWatchState,
@@ -652,7 +652,11 @@ function App() {
           });
         }
 
-        tickPrices(citySignal.cityId, deltas);
+        tickPrices(citySignal.cityId, deltas, {
+          soilMoisture: citySignal.soilMoisture,
+          soilPh: citySignal.soilPh,
+          humidity: citySignal.humidity,
+        });
         recordSignals(citySignal.cityId, citySignal);
       });
 
@@ -686,39 +690,39 @@ function App() {
 
   const sideMotionProps = isAppInteractive
     ? {
-        initial: { opacity: 0, x: -24 },
-        animate: { opacity: 1, x: 0 },
-        transition: { duration: 0.5 }
-      }
+      initial: { opacity: 0, x: -24 },
+      animate: { opacity: 1, x: 0 },
+      transition: { duration: 0.5 }
+    }
     : {
-        initial: false as const,
-        animate: { opacity: 1, x: 0 },
-        transition: { duration: 0 }
-      };
+      initial: false as const,
+      animate: { opacity: 1, x: 0 },
+      transition: { duration: 0 }
+    };
 
   const rightMotionProps = isAppInteractive
     ? {
-        initial: { opacity: 0, x: 24 },
-        animate: { opacity: 1, x: 0 },
-        transition: { duration: 0.5 }
-      }
+      initial: { opacity: 0, x: 24 },
+      animate: { opacity: 1, x: 0 },
+      transition: { duration: 0.5 }
+    }
     : {
-        initial: false as const,
-        animate: { opacity: 1, x: 0 },
-        transition: { duration: 0 }
-      };
+      initial: false as const,
+      animate: { opacity: 1, x: 0 },
+      transition: { duration: 0 }
+    };
 
   const globeMotionProps = isAppInteractive
     ? {
-        initial: { opacity: 0, scale: 0.96 },
-        animate: { opacity: 1, scale: 1 },
-        transition: { duration: 0.6 }
-      }
+      initial: { opacity: 0, scale: 0.96 },
+      animate: { opacity: 1, scale: 1 },
+      transition: { duration: 0.6 }
+    }
     : {
-        initial: false as const,
-        animate: { opacity: 1, scale: 1 },
-        transition: { duration: 0 }
-      };
+      initial: false as const,
+      animate: { opacity: 1, scale: 1 },
+      transition: { duration: 0 }
+    };
 
   return (
     <div className={isAppInteractive ? "app-shell is-interactive" : "app-shell is-loading"}>
@@ -822,22 +826,9 @@ function App() {
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "flex-start", gap: "20px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
           <MyceliumWidget signals={signals} cityId={currentCityId} />
-          <div className="header-stats">
-            <div>
-              <span>Tracked cities</span>
-              <strong>{cities.length}</strong>
-            </div>
-            <div>
-              <span>Storms in play</span>
-              <strong>{stormSnapshots.length}</strong>
-            </div>
-            <div>
-              <span>Flight status</span>
-              <strong>{describeFlightStatus(flight)}</strong>
-            </div>
-          </div>
+          <EnvironmentalEffectsPanel signals={signals} cityId={currentCityId} />
         </div>
       </header>
 

@@ -8,7 +8,8 @@ import type {
   MarketTicker,
   ScenarioSnapshot,
   SignalKey,
-  TradeFailureReason
+  TradeFailureReason,
+  TradeResult
 } from "../../shared/types";
 
 type MarketPanelProps = {
@@ -53,7 +54,9 @@ const tradeFailureCopy: Record<TradeFailureReason, string> = {
   "insufficient-cash": "Not enough cash to complete that trade.",
   "no-holdings": "There are no units available to sell here.",
   "ecological-interference": "Ecological interference disrupted the trade.",
-  "mycelium-network-collapse": "The mycelium network has fully collapsed — all three signals are outside healthy ranges."
+  "mycelium-network-collapse": "The mycelium network has fully collapsed — all three signals are outside healthy ranges.",
+  "moisture-wilting-cap": "Wilting roots are restricting this trade — cap is 10% of balance per transaction.",
+  "humidity-reroute": "Low humidity scrambled the signal routing."
 };
 
 export function MarketPanel({
@@ -89,6 +92,15 @@ export function MarketPanel({
   );
   const isLocalTradingWindow = focusedCityId === currentCityId && !flight;
 
+  // ── Moisture-aware trade capacities ────────────────────────────────────────
+  const isSaturated = currentMycelium.soilMoisture > 80;
+  const isWilting = currentMycelium.soilMoisture < 20;
+  // Saturated: trade quantities scale 10×; Wilting: normal quantities but capped by spend
+  const buyQuantities: readonly number[] = isSaturated ? ([10, 100, 1000] as const) : ([1, 10, 100] as const);
+  const sellQuantities: readonly number[] = [1, 10, 100] as const;
+  // Max spend per trade when wilting: 10% of cash
+  const maxSpendWilting = isWilting ? cash * 0.1 : Infinity;
+
   const primaryDriver = (Object.entries(asset.ecologicalWeights) as [SignalKey, number][])
     .find(([, weight]) => weight !== 0);
   const driverKey = primaryDriver?.[0];
@@ -108,24 +120,33 @@ export function MarketPanel({
 
   const [isTrading, setIsTrading] = useState(false);
   const [tradeError, setTradeError] = useState<string | null>(null);
+  const [redirectInfo, setRedirectInfo] = useState<{ assetId: string; executedPrice: number } | null>(null);
+
+  const handleResult = (result: TradeResult) => {
+    if (!result.ok) {
+      setTradeError(result.message ?? tradeFailureCopy[result.reason]);
+      const redirect = "redirectBuy" in result ? result.redirectBuy : undefined;
+      setRedirectInfo(redirect ? { assetId: redirect.assetId, executedPrice: redirect.executedPrice } : null);
+    } else {
+      setRedirectInfo(null);
+    }
+  };
 
   const handleBuy = async (quantity: number) => {
     setIsTrading(true);
     setTradeError(null);
+    setRedirectInfo(null);
     const result = await buyAsset(currentCityId, selectedAssetId, currentMycelium, quantity);
-    if (!result.ok) {
-      setTradeError(result.message ?? tradeFailureCopy[result.reason]);
-    }
+    handleResult(result);
     setIsTrading(false);
   };
 
   const handleSell = async (quantity: number) => {
     setIsTrading(true);
     setTradeError(null);
+    setRedirectInfo(null);
     const result = await sellAsset(currentCityId, selectedAssetId, currentMycelium, quantity);
-    if (!result.ok) {
-      setTradeError(result.message ?? tradeFailureCopy[result.reason]);
-    }
+    handleResult(result);
     setIsTrading(false);
   };
 
@@ -303,25 +324,50 @@ export function MarketPanel({
             </span>
             <strong style={{ fontSize: "1.2rem" }}>{currentHoldings}</strong>
           </div>
+
+          {/* Moisture capacity indicator */}
+          {isSaturated || isWilting ? (
+            <div style={{
+              fontSize: "0.72rem",
+              padding: "4px 9px",
+              borderRadius: "4px",
+              background: isSaturated ? "rgba(74,222,128,0.08)" : "rgba(245,158,11,0.08)",
+              border: `1px solid ${isSaturated ? "rgba(74,222,128,0.3)" : "rgba(245,158,11,0.3)"}`,
+              color: isSaturated ? "#4ade80" : "#f59e0b",
+              fontWeight: "bold",
+            }}>
+              {isSaturated
+                ? "DEEP LIQUIDITY — buying at 10× capacity"
+                : `WILTING — max trade: ${formatGBP(maxSpendWilting)} (10% balance)`}
+            </div>
+          ) : null}
+
           <div style={{ display: "flex", gap: "6px" }}>
-            {([1, 10, 100] as const).map((quantity) => (
-              <button
-                key={quantity}
-                className="action-btn buy-btn"
-                onClick={() => handleBuy(quantity)}
-                disabled={
-                  cash < currentPrice * quantity ||
-                  isTrading ||
-                  !mycStatus.allOk ||
-                  !isLocalTradingWindow
-                }
-              >
-                {isTrading ? "..." : `BUY ${quantity}`}
-              </button>
-            ))}
+            {buyQuantities.map((quantity) => {
+              const cost = currentPrice * quantity;
+              // For saturated: need only 1/10 of cost; for wilting: cost must be ≤ maxSpendWilting
+              const cashRequired = isSaturated ? cost / 10 : cost;
+              const exceedsWilting = isWilting && cost > maxSpendWilting;
+              return (
+                <button
+                  key={quantity}
+                  className="action-btn buy-btn"
+                  onClick={() => handleBuy(quantity)}
+                  disabled={
+                    cash < cashRequired ||
+                    exceedsWilting ||
+                    isTrading ||
+                    !mycStatus.allOk ||
+                    !isLocalTradingWindow
+                  }
+                >
+                  {isTrading ? "..." : `BUY ${quantity}`}
+                </button>
+              );
+            })}
           </div>
           <div style={{ display: "flex", gap: "6px" }}>
-            {([1, 10, 100] as const).map((quantity) => (
+            {sellQuantities.map((quantity) => (
               <button
                 key={quantity}
                 className="action-btn sell-btn"
@@ -346,11 +392,15 @@ export function MarketPanel({
           </p>
         ) : null}
         {tradeError ? (
-          <p style={{ color: "#ff8a8a", fontSize: "0.85rem", marginBottom: "16px" }}>
+          <p style={{ color: "#ff8a8a", fontSize: "0.85rem", marginBottom: "8px" }}>
             {tradeError}
           </p>
         ) : null}
-
+        {redirectInfo ? (
+          <p style={{ color: "#f59e0b", fontSize: "0.8rem", marginBottom: "16px" }}>
+            Redirected buy: 1× {redirectInfo.assetId} @ {formatGBP(redirectInfo.executedPrice)}
+          </p>
+        ) : null}
 
       </section>
     </aside>
