@@ -517,19 +517,19 @@ type SignalSimConfig = {
 
 const SIGNAL_SIM: Record<SignalKey, SignalSimConfig> = {
   // Temperature: long, slow trends — can drift 15-20 °C over several minutes.
-  temperature:  { momentumDecay: 0.97, volatility: 0.06,  meanRevStrength: 0.003, jumpProb: 0.005, jumpScale: 12 },
+  temperature: { momentumDecay: 0.97, volatility: 0.06, meanRevStrength: 0.003, jumpProb: 0.005, jumpScale: 12 },
   // Rain: bursty — intense episodes that recede quickly, strong mean reversion.
-  rain:         { momentumDecay: 0.86, volatility: 0.10,  meanRevStrength: 0.030, jumpProb: 0.010, jumpScale: 10 },
+  rain: { momentumDecay: 0.86, volatility: 0.10, meanRevStrength: 0.030, jumpProb: 0.010, jumpScale: 10 },
   // Wind: medium persistence, gusty spikes.
-  wind:         { momentumDecay: 0.90, volatility: 0.20,  meanRevStrength: 0.005, jumpProb: 0.008, jumpScale: 8  },
+  wind: { momentumDecay: 0.90, volatility: 0.20, meanRevStrength: 0.005, jumpProb: 0.008, jumpScale: 8 },
   // Air quality: gradual, persistent shifts (pollution fronts).
-  airQuality:   { momentumDecay: 0.95, volatility: 0.60,  meanRevStrength: 0.003, jumpProb: 0.006, jumpScale: 7  },
+  airQuality: { momentumDecay: 0.95, volatility: 0.60, meanRevStrength: 0.003, jumpProb: 0.006, jumpScale: 7 },
   // Humidity: slow, drifts with temperature/rain trends.
-  humidity:     { momentumDecay: 0.95, volatility: 0.30,  meanRevStrength: 0.003, jumpProb: 0.004, jumpScale: 6  },
+  humidity: { momentumDecay: 0.95, volatility: 0.30, meanRevStrength: 0.003, jumpProb: 0.004, jumpScale: 6 },
   // Soil moisture: inertia-heavy, responds slowly.
-  soilMoisture: { momentumDecay: 0.97, volatility: 0.12,  meanRevStrength: 0.003, jumpProb: 0.003, jumpScale: 5  },
-  // Soil pH: very stable, tiny fluctuations.
-  soilPh:       { momentumDecay: 0.98, volatility: 0.008, meanRevStrength: 0.003, jumpProb: 0.002, jumpScale: 5  },
+  soilMoisture: { momentumDecay: 0.97, volatility: 0.12, meanRevStrength: 0.003, jumpProb: 0.003, jumpScale: 5 },
+  // Soil pH: very stable, tiny fluctuations. //0.008 originally
+  soilPh: { momentumDecay: 0.98, volatility: 0.12, meanRevStrength: 0.003, jumpProb: 0.002, jumpScale: 5 },
 };
 
 // Persistent simulation state — survives across ticks for the lifetime of the page.
@@ -561,6 +561,7 @@ export function createFallbackSignals(): EnvironmentalSignal[] {
       const particle = cityState[key]!;
       const center = city.baselines[key];
 
+      // THE WEATHER CHANGING!!!!
       // Continuous noise: approximates N(0, volatility²) via scaled uniform.
       const noise = (Math.random() - 0.5) * sim.volatility * 3.46;
 
@@ -582,13 +583,13 @@ export function createFallbackSignals(): EnvironmentalSignal[] {
     return {
       cityId: city.id,
       region: city.region,
-      humidity:     round(out.humidity!,     1),
-      rain:         round(out.rain!,         1),
-      temperature:  round(out.temperature!,  1),
-      wind:         round(out.wind!,         1),
-      airQuality:   round(out.airQuality!,   1),
+      humidity: round(out.humidity!, 1),
+      rain: round(out.rain!, 1),
+      temperature: round(out.temperature!, 1),
+      wind: round(out.wind!, 1),
+      airQuality: round(out.airQuality!, 1),
       soilMoisture: round(out.soilMoisture!, 1),
-      soilPh:       round(out.soilPh!,       2),
+      soilPh: round(out.soilPh!, 2),
       sourceMode: "synthetic" as const
     };
   });

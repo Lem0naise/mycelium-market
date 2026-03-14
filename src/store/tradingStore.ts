@@ -27,8 +27,8 @@ export type TradingState = {
     mycelium: MyceliumSignal,
     quantity?: number
   ) => Promise<TradeResult>;
-  tickPrices: (cityId: string, earthDeltas: Record<string, number>) => void;
-  recordSignals: (cityId: string, signals: Partial<Record<SignalKey, number>>) => void;
+  tickAllPrices: (updates: Array<{cityId: string; earthDeltas: Record<string, number>; mycelium?: MyceliumSignal}>) => void;
+  recordAllSignals: (updates: Array<{cityId: string; signals: Partial<Record<SignalKey, number>>}>) => void;
   resetPortfolio: () => void;
 };
 
@@ -58,7 +58,7 @@ function getMyceliumFailure(
 ): { reason: TradeFailureReason; message: string } | null {
   const soilMoistureOk = mycelium.soilMoisture >= 20 && mycelium.soilMoisture <= 85;
   const soilPhOk = mycelium.soilPh >= 5 && mycelium.soilPh <= 8;
-  const humidityOk = mycelium.humidity >= 25 && mycelium.humidity <= 88;
+  const humidityOk = mycelium.humidity >= 20 && mycelium.humidity <= 80;
 
   // Only block trading if ALL THREE signals are outside their healthy ranges
   if (soilMoistureOk || soilPhOk || humidityOk) {
@@ -69,6 +69,23 @@ function getMyceliumFailure(
     reason: "mycelium-network-collapse",
     message: `Mycelium network has collapsed: soil moisture ${mycelium.soilMoisture.toFixed(0)}%, pH ${mycelium.soilPh.toFixed(1)}, humidity ${mycelium.humidity.toFixed(0)}% are all outside healthy ranges.`
   };
+}
+
+/** Shared pre-execution checks used by both buyAsset and sellAsset. */
+async function applyPreTradeEffects(
+  mycelium: MyceliumSignal
+): Promise<{ blocked: false } | { blocked: true; reason: "humidity-reroute" }> {
+  // Humidity > 80%: impose a 2-second execution delay
+  if (mycelium.humidity > 80) {
+    await new Promise<void>((res) => setTimeout(res, 2000));
+  }
+
+  // Humidity < 20%: 60% chance the signal gets scrambled → reroute
+  if (mycelium.humidity < 20 && Math.random() < 0.6) {
+    return { blocked: true, reason: "humidity-reroute" };
+  }
+
+  return { blocked: false };
 }
 
 export const useTradingStore = create<TradingState>()((set, get) => ({
@@ -99,6 +116,44 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       };
     }
 
+    // ── Humidity effects ─────────────────────────────────────────────────────
+    const preCheck = await applyPreTradeEffects(mycelium);
+    if (preCheck.blocked) {
+      // Try to execute a random asset buy instead
+      const state = get();
+      const otherAssets = assetProfiles.filter((a) => a.id !== assetId);
+      let redirectBuy: { assetId: string; quantity: number; executedPrice: number } | undefined;
+
+      if (otherAssets.length > 0) {
+        const randomAsset = otherAssets[Math.floor(Math.random() * otherAssets.length)];
+        const randomPrice = state.prices[cityId]?.[randomAsset.id] ?? randomAsset.basePrice;
+
+        if (state.cash >= randomPrice) {
+          set((cs) => ({
+            cash: cs.cash - randomPrice,
+            holdings: {
+              ...cs.holdings,
+              [cityId]: {
+                ...cs.holdings[cityId],
+                [randomAsset.id]: (cs.holdings[cityId]?.[randomAsset.id] || 0) + 1
+              }
+            }
+          }));
+          redirectBuy = { assetId: randomAsset.id, quantity: 1, executedPrice: randomPrice };
+        }
+      }
+
+      return {
+        ok: false,
+        reason: "humidity-reroute",
+        message: redirectBuy
+          ? `Low humidity scrambled the network — bought 1× ${redirectBuy.assetId} at £${redirectBuy.executedPrice.toFixed(2)} instead.`
+          : `Low humidity scrambled the network — no affordable assets for redirect.`,
+        redirectBuy
+      };
+    }
+
+    // ── Price & cash checks ──────────────────────────────────────────────────
     const state = get();
     const price = state.prices[cityId]?.[assetId];
     if (!price) {
@@ -110,8 +165,28 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
     }
 
     const cost = price * quantity;
-    if (state.cash < cost) {
-      return { ok: false, reason: "insufficient-cash" };
+
+    // Soil Moisture < 20% (Wilting): cap each trade to 10% of current balance
+    if (mycelium.soilMoisture < 20) {
+      const maxSpend = state.cash * 0.1;
+      if (cost > maxSpend) {
+        return {
+          ok: false,
+          reason: "moisture-wilting-cap",
+          message: `Wilting roots restrict trades to 10% of balance — max £${maxSpend.toFixed(2)} per trade.`
+        };
+      }
+    }
+
+    // Soil Moisture > 80% (Saturated): 10× leverage — need only 1/10 of cost in cash
+    if (mycelium.soilMoisture > 80) {
+      if (state.cash < cost / 10) {
+        return { ok: false, reason: "insufficient-cash" };
+      }
+    } else {
+      if (state.cash < cost) {
+        return { ok: false, reason: "insufficient-cash" };
+      }
     }
 
     set((currentState) => ({
@@ -154,6 +229,43 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       };
     }
 
+    // ── Humidity effects ─────────────────────────────────────────────────────
+    const preCheck = await applyPreTradeEffects(mycelium);
+    if (preCheck.blocked) {
+      const state = get();
+      const otherAssets = assetProfiles.filter((a) => a.id !== assetId);
+      let redirectBuy: { assetId: string; quantity: number; executedPrice: number } | undefined;
+
+      if (otherAssets.length > 0) {
+        const randomAsset = otherAssets[Math.floor(Math.random() * otherAssets.length)];
+        const randomPrice = state.prices[cityId]?.[randomAsset.id] ?? randomAsset.basePrice;
+
+        if (state.cash >= randomPrice) {
+          set((cs) => ({
+            cash: cs.cash - randomPrice,
+            holdings: {
+              ...cs.holdings,
+              [cityId]: {
+                ...cs.holdings[cityId],
+                [randomAsset.id]: (cs.holdings[cityId]?.[randomAsset.id] || 0) + 1
+              }
+            }
+          }));
+          redirectBuy = { assetId: randomAsset.id, quantity: 1, executedPrice: randomPrice };
+        }
+      }
+
+      return {
+        ok: false,
+        reason: "humidity-reroute",
+        message: redirectBuy
+          ? `Low humidity scrambled the network — bought 1× ${redirectBuy.assetId} at £${redirectBuy.executedPrice.toFixed(2)} instead.`
+          : `Low humidity scrambled the network — no affordable assets for redirect.`,
+        redirectBuy
+      };
+    }
+
+    // ── Holdings & price checks ───────────────────────────────────────────────
     const state = get();
     const currentHoldings = state.holdings[cityId]?.[assetId] || 0;
     if (currentHoldings < quantity) {
@@ -191,47 +303,49 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
     };
   },
 
-  tickPrices: (cityId, earthDeltas) =>
+  tickAllPrices: (updates) =>
     set((state) => {
-      const newCityPrices = { ...state.prices[cityId] };
-      const newCityChangePct = { ...state.changePct[cityId] };
-      const newCityPriceHistory = { ...state.priceHistory[cityId] };
+      const newPrices = { ...state.prices };
+      const newPriceHistory = { ...state.priceHistory };
+      const newChangePct = { ...state.changePct };
 
-      Object.keys(newCityPrices).forEach((assetId) => {
-        const delta = earthDeltas[assetId] || 0;
-        const oldPrice = newCityPrices[assetId];
-        const basePrice = assetIndex[assetId]?.basePrice ?? oldPrice;
+      updates.forEach(({ cityId, earthDeltas, mycelium }) => {
+        const newCityPrices = { ...newPrices[cityId] };
+        const newCityChangePct = { ...newChangePct[cityId] };
+        const newCityPriceHistory = { ...newPriceHistory[cityId] };
 
-        // New, highly volatile code
-        // 1. Environmental Impact: Increased so weather changes hit the price much harder.
-        // 0.006 (3× the old 0.002) — a sustained strong rain/temp signal can push 5–10× gains.
-        const logShift = delta * 0.006;
+        const pH = mycelium?.soilPh ?? 6.5;
+        const pHVolatilityFactor = pH < 5.5 ? 5 : pH > 7.5 ? 0.2 : 1;
 
-        // 2. Mean Reversion: Weakened significantly (0.001 vs old 0.005).
-        // The rubber band is now very loose, letting prices stay elevated / depressed long
-        // after a weather event rather than snapping back quickly.
-        const meanRevPull = -0.001 * (Math.log(oldPrice) - Math.log(basePrice));
+        Object.keys(newCityPrices).forEach((assetId) => {
+          const delta = earthDeltas[assetId] || 0;
+          const oldPrice = newCityPrices[assetId];
+          const basePrice = assetIndex[assetId]?.basePrice ?? oldPrice;
 
-        // 3. Random Noise: Increased 5x. Creates a wilder ±1.5% random swing per tick, 
-        // ensuring the chart looks highly active and volatile.
-        const logNoise = (Math.random() - 0.5) * 0.03;
+          const logShift = delta * 0.006 * pHVolatilityFactor;
+          const meanRevPull = -0.001 * (Math.log(oldPrice) - Math.log(basePrice));
+          const logNoise = (Math.random() - 0.5) * 0.03 * pHVolatilityFactor;
 
-        const newPrice = Math.max(0.01, Math.exp(Math.log(oldPrice) + logShift + meanRevPull + logNoise));
-        newCityPrices[assetId] = newPrice;
+          const newPrice = Math.max(0.01, Math.exp(Math.log(oldPrice) + logShift + meanRevPull + logNoise));
+          newCityPrices[assetId] = newPrice;
 
-        const WINDOW = 40;
-        const prevHistory = newCityPriceHistory[assetId] || [basePrice];
-        newCityPriceHistory[assetId] = [...prevHistory, newPrice].slice(-WINDOW);
+          const WINDOW = 40;
+          const prevHistory = newCityPriceHistory[assetId] || [basePrice];
+          newCityPriceHistory[assetId] = [...prevHistory, newPrice].slice(-WINDOW);
 
-        // Raw single-tick change — no rolling average, no lag.
-        const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;
-        newCityChangePct[assetId] = Number(rawChangePct.toFixed(2));
+          const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;
+          newCityChangePct[assetId] = Number(rawChangePct.toFixed(2));
+        });
+
+        newPrices[cityId] = newCityPrices;
+        newPriceHistory[cityId] = newCityPriceHistory;
+        newChangePct[cityId] = newCityChangePct;
       });
 
       return {
-        prices: { ...state.prices, [cityId]: newCityPrices },
-        priceHistory: { ...state.priceHistory, [cityId]: newCityPriceHistory },
-        changePct: { ...state.changePct, [cityId]: newCityChangePct }
+        prices: newPrices,
+        priceHistory: newPriceHistory,
+        changePct: newChangePct
       };
     }),
 
@@ -245,26 +359,29 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       signalHistory: {}
     }),
 
-  recordSignals: (cityId, signals) =>
+  recordAllSignals: (updates) =>
     set((state) => {
       const WINDOW = 10;
-      const cityHistory = { ...(state.signalHistory[cityId] ?? {}) };
+      const newSignalHistory = { ...state.signalHistory };
 
-      (Object.keys(signals) as SignalKey[]).forEach((key) => {
-        const value = signals[key];
-        if (value === undefined) {
-          return;
-        }
+      updates.forEach(({ cityId, signals }) => {
+        const cityHistory = { ...(newSignalHistory[cityId] ?? {}) };
 
-        const previous = cityHistory[key] ?? [];
-        cityHistory[key] = [...previous, value].slice(-WINDOW);
+        (Object.keys(signals) as SignalKey[]).forEach((key) => {
+          const value = signals[key];
+          if (value === undefined) {
+            return;
+          }
+
+          const previous = cityHistory[key] ?? [];
+          cityHistory[key] = [...previous, value].slice(-WINDOW);
+        });
+
+        newSignalHistory[cityId] = cityHistory;
       });
 
       return {
-        signalHistory: {
-          ...state.signalHistory,
-          [cityId]: cityHistory
-        }
+        signalHistory: newSignalHistory
       };
     })
 }));
