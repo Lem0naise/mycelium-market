@@ -78,6 +78,8 @@ function App() {
   const [isAppInteractive, setIsAppInteractive] = useState(false);
   const [loadStage, setLoadStage] = useState<GlobeLoadStage>("shell");
   const [gameTick, setGameTick] = useState(0);
+  const portfolioHistoryRef = useRef<number[]>([]);
+  const [portfolioRollingPct, setPortfolioRollingPct] = useState<number | null>(null);
 
   const {
     selectedAssetId,
@@ -91,7 +93,7 @@ function App() {
     pushOracleSpeech
   } = useAppStore();
 
-  const { prices, tickPrices, recordSignals } = useTradingStore();
+  const { cash, holdings, prices, tickPrices, recordSignals } = useTradingStore();
 
   const [liveSignals, setLiveSignals] = useState<EnvironmentalSignal[]>(() => createFallbackSignals());
   const liveSignalsRef = useRef<EnvironmentalSignal[]>(liveSignals);
@@ -242,6 +244,30 @@ function App() {
   // without taking them as deps (which would reset the interval on every state change).
   useEffect(() => { isOracleSpeakingRef.current = isOracleSpeaking; }, [isOracleSpeaking]);
   useEffect(() => { speakPendingRef.current = speakMutation.isPending; }, [speakMutation.isPending]);
+
+  // Track rolling 3-tick average portfolio value change
+  useEffect(() => {
+    const { prices: p, holdings: h, cash: c } = useTradingStore.getState();
+    let holdingsVal = 0;
+    for (const cId in h) {
+      for (const aId in h[cId]) {
+        holdingsVal += (p[cId]?.[aId] ?? 0) * h[cId][aId];
+      }
+    }
+    const totalVal = c + holdingsVal;
+    const hist = portfolioHistoryRef.current;
+    hist.push(totalVal);
+    if (hist.length > 4) hist.shift(); // keep last 4 values → up to 3 tick-to-tick changes
+    if (hist.length >= 2) {
+      const changes: number[] = [];
+      for (let i = 1; i < hist.length; i++) {
+        const prev = hist[i - 1];
+        if (prev !== 0) changes.push(((hist[i] - prev) / prev) * 100);
+      }
+      const avg = changes.reduce((s, v) => s + v, 0) / changes.length;
+      setPortfolioRollingPct(Number(avg.toFixed(2)));
+    }
+  }, [gameTick]);
 
   // Multi-city oracle scanning — fires alerts only for cities where the user
   // has stock holdings AND is NOT currently visiting that city.
@@ -484,37 +510,108 @@ function App() {
             ) : null}
           </div>
           <div className="globe-overlay">
-
             <div className="overlay-panel">
-              <span className="eyebrow">Active Holdings</span>
               {(() => {
-                const holdings = useTradingStore.getState().holdings;
-                const portfolioItems = [];
+                const formatGBP = (v: number) =>
+                  `£${new Intl.NumberFormat("en-GB", {
+                    maximumFractionDigits: v >= 1000 ? 0 : 2,
+                    minimumFractionDigits: v >= 1000 ? 0 : 2,
+                  }).format(v)}`;
+
+                const portfolioItems: { cityId: string; assetId: string; qty: number }[] = [];
                 for (const cId in holdings) {
                   for (const aId in holdings[cId]) {
                     const qty = holdings[cId][aId];
-                    if (qty > 0) {
-                      portfolioItems.push({ cityId: cId, assetId: aId, qty });
-                    }
+                    if (qty > 0) portfolioItems.push({ cityId: cId, assetId: aId, qty });
                   }
                 }
 
-                if (portfolioItems.length === 0) {
-                  return <p>No active holdings.</p>;
-                }
+                const holdingsValue = portfolioItems.reduce((sum, item) => {
+                  const unitPrice = prices[item.cityId]?.[item.assetId] ?? 0;
+                  return sum + unitPrice * item.qty;
+                }, 0);
+                const totalValue = cash + holdingsValue;
 
                 return (
-                  <ul style={{ listStyle: "none", padding: 0, margin: 0, marginTop: "0.5rem" }}>
-                    {portfolioItems.map((item, idx) => {
-                      const cityName = cityIndex[item.cityId]?.name ?? item.cityId;
-                      const assetLabel = assetProfiles.find(a => a.id === item.assetId)?.label ?? item.assetId;
-                      return (
-                        <li key={idx} style={{ marginBottom: "0.25rem", fontSize: "0.9rem" }}>
-                          <strong>{cityName}</strong>: {assetLabel} (x{item.qty})
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <>
+                    {/* Portfolio label + rolling pct badge */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                      <span className="eyebrow">Portfolio</span>
+                      {portfolioRollingPct !== null && (
+                        <span style={{
+                          fontSize: "0.72rem",
+                          fontWeight: "bold",
+                          letterSpacing: "0.03em",
+                          padding: "2px 7px",
+                          borderRadius: "4px",
+                          background: portfolioRollingPct >= 0 ? "rgba(0,200,100,0.15)" : "rgba(220,50,50,0.15)",
+                          color: portfolioRollingPct >= 0 ? "#3ddc84" : "#ff5c5c",
+                          border: `1px solid ${portfolioRollingPct >= 0 ? "rgba(61,220,132,0.35)" : "rgba(255,92,92,0.35)"}`,
+                        }}>
+                          {portfolioRollingPct >= 0 ? "▲" : "▼"} {Math.abs(portfolioRollingPct).toFixed(2)}%
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Big total value display */}
+                    <div style={{
+                      fontSize: "clamp(1.5rem, 2.8vw, 2.2rem)",
+                      fontWeight: "bold",
+                      letterSpacing: "-0.03em",
+                      lineHeight: 1,
+                      color: "var(--accent)",
+                      marginBottom: "12px",
+                    }}>
+                      {formatGBP(totalValue)}
+                    </div>
+
+                    {/* Cash row */}
+                    <div style={{
+                      display: "flex", justifyContent: "space-between",
+                      fontSize: "0.8rem", color: "var(--text-muted)",
+                      paddingBottom: "8px",
+                      borderBottom: portfolioItems.length > 0 ? "1px solid var(--border)" : "none",
+                      marginBottom: portfolioItems.length > 0 ? "8px" : 0,
+                    }}>
+                      <span>Cash</span>
+                      <span>{formatGBP(cash)}</span>
+                    </div>
+
+                    {/* Holdings list */}
+                    {portfolioItems.length === 0 ? (
+                      <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: 0 }}>No active holdings.</p>
+                    ) : (
+                      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                        {portfolioItems.map((item, idx) => {
+                          const cityName = cityIndex[item.cityId]?.name ?? item.cityId;
+                          const profile = assetProfiles.find(a => a.id === item.assetId);
+                          const assetLabel = profile?.id ?? item.assetId;
+                          const unitPrice = prices[item.cityId]?.[item.assetId] ?? (profile?.basePrice ?? 0);
+                          const positionValue = unitPrice * item.qty;
+                          return (
+                            <li key={idx} style={{
+                              marginBottom: "8px",
+                              paddingBottom: "8px",
+                              borderBottom: idx < portfolioItems.length - 1 ? "1px solid var(--border)" : "none",
+                            }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                                <span style={{ fontWeight: "bold", fontSize: "0.9rem" }}>
+                                  {assetLabel} <span style={{ fontWeight: "normal", color: "var(--text-muted)" }}>×{item.qty}</span>
+                                </span>
+                                <strong style={{ fontSize: "0.95rem", color: "var(--accent)" }}>
+                                  {formatGBP(positionValue)}
+                                </strong>
+                              </div>
+                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                                <span>{cityName}</span>
+                                <span>{formatGBP(unitPrice)} / unit</span>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </>
                 );
               })()}
             </div>

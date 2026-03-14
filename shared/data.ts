@@ -208,7 +208,7 @@ export const cities: CityProfile[] = [
 // when out of range but do NOT affect prices.
 export const assetProfiles: AssetProfile[] = [
   {
-    id: "KAI",
+    id: "KAICOIN",
     label: "KaiCoin",
     marketType: "crypto",
     symbol: "KAI-USD",
@@ -300,14 +300,14 @@ export const assetProfiles: AssetProfile[] = [
     label: "JoshStock",
     marketType: "stock",
     symbol: "JMW",
-    basePrice: 25,
+    basePrice: 250,
     accentColor: "#e6e6e6",
     homeRegions: ["North America", "Global"],
     // Primary driver: temperature (falls in hot conditions — cold-adapted)
     ecologicalWeights: {
       humidity: 0,
       rain: 0,
-      temperature: -1.0,
+      temperature: 1.0,
       wind: 0,
       airQuality: 0,
       soilMoisture: 0,
@@ -341,7 +341,7 @@ export const assetProfiles: AssetProfile[] = [
   }
 ];
 
-export const defaultAssetId = "KAI";
+export const defaultAssetId = "KAICOIN";
 export const defaultCityId = "abidjan";
 
 export const cityIndex = Object.fromEntries(cities.map((city) => [city.id, city]));

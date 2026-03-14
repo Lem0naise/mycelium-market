@@ -16,10 +16,11 @@ type MarketPanelProps = {
   onSelectAsset?: (assetId: string) => void;
 };
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: value >= 1000 ? 0 : 2
-  }).format(value);
+const formatGBP = (value: number) =>
+  `£${new Intl.NumberFormat("en-GB", {
+    maximumFractionDigits: value >= 1000 ? 0 : 2,
+    minimumFractionDigits: value >= 1000 ? 0 : 2,
+  }).format(value)}`;
 
 // Human-readable label and unit for each signal key
 const SIGNAL_META: Record<SignalKey, { label: string; unit: string; center: number }> = {
@@ -48,7 +49,7 @@ export function MarketPanel({
   selectedCityId,
   onSelectAsset
 }: MarketPanelProps) {
-  const { cash, holdings, prices, buyAsset, sellAsset, resetPortfolio, signalHistory } = useTradingStore();
+  const { cash, holdings, buyAsset, sellAsset, resetPortfolio, signalHistory } = useTradingStore();
 
   const asset = assetIndex[selectedAssetId];
   const primaryTicker = tickers.find((ticker) => ticker.assetId === selectedAssetId);
@@ -102,8 +103,8 @@ export function MarketPanel({
 
   // 5-reading rolling average; fall back to hardcoded center until history accumulates
   const driverHistoryArr = driverKey ? (signalHistory[selectedCityId]?.[driverKey] ?? []) : [];
-  const driverRef = driverHistoryArr.length > 0
-    ? driverHistoryArr.reduce((sum, v) => sum + v, 0) / driverHistoryArr.length
+  const driverRef = driverHistoryArr.length > 0 ?
+    (driverMeta?.center ?? 0) // ? driverHistoryArr.reduce((sum, v) => sum + v, 0) / driverHistoryArr.length 
     : (driverMeta?.center ?? 0);
 
   // bullish when high signal + positive weight, or low signal + negative weight
@@ -122,16 +123,7 @@ export function MarketPanel({
       <div className="hero-metric" style={{ marginBottom: '16px' }}>
         <div>
           <span>Available Cash</span>
-          <strong>{formatCurrency(cash)}</strong>
-        </div>
-        <div>
-          <span>Total Value</span>
-          <strong>{formatCurrency(cash + Object.entries(holdings).reduce((sum, [cityId, cityHoldings]) => {
-            return sum + Object.entries(cityHoldings).reduce((citySum, [id, qty]) => {
-              const p = prices[cityId]?.[id] ?? assetIndex[id].basePrice;
-              return citySum + p * qty;
-            }, 0);
-          }, 0))}</strong>
+          <strong>{formatGBP(cash)}</strong>
         </div>
       </div>
 
@@ -162,7 +154,7 @@ export function MarketPanel({
                   </span>
                 )}
               </span>
-              <strong>{formatCurrency(ticker.price)}</strong>
+              <strong>{formatGBP(ticker.price)}</strong>
               <small className={ticker.changePct >= 0 ? "up" : "down"}>
                 {ticker.changePct >= 0 ? "+" : ""}
                 {ticker.changePct}%

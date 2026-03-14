@@ -76,7 +76,6 @@ export const useTradingStore = create<TradingState>()(
 
       const cost = price * quantity;
       if (state.cash >= cost) {
-        const priceImpact = 1 + (0.005 * quantity);
         set((s) => ({
           cash: s.cash - cost,
           holdings: {
@@ -84,13 +83,6 @@ export const useTradingStore = create<TradingState>()(
             [cityId]: {
               ...s.holdings[cityId],
               [assetId]: (s.holdings[cityId]?.[assetId] || 0) + quantity
-            }
-          },
-          prices: {
-            ...s.prices,
-            [cityId]: {
-              ...s.prices[cityId],
-              [assetId]: s.prices[cityId][assetId] * priceImpact
             }
           }
         }));
@@ -121,7 +113,6 @@ export const useTradingStore = create<TradingState>()(
         if (!price) return { ok: false, reason: "Price unavailable" };
 
         const revenue = price * quantity;
-        const priceImpact = 1 - (0.005 * quantity);
 
         set((s) => ({
           cash: s.cash + revenue,
@@ -130,13 +121,6 @@ export const useTradingStore = create<TradingState>()(
             [cityId]: {
               ...s.holdings[cityId],
               [assetId]: currentHoldings - quantity
-            }
-          },
-          prices: {
-            ...s.prices,
-            [cityId]: {
-              ...s.prices[cityId],
-              [assetId]: Math.max(0.01, s.prices[cityId][assetId] * priceImpact)
             }
           }
         }));

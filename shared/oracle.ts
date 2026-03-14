@@ -56,18 +56,6 @@ function normalizeSignal(signal: SignalKey, value: number) {
   return clamp((value - bounds.center) / spread, -1.35, 1.35);
 }
 
-function regionAffinity(asset: AssetProfile, region: string) {
-  if (asset.homeRegions.includes("Global")) {
-    return 3;
-  }
-
-  if (asset.homeRegions.includes(region)) {
-    return 8;
-  }
-
-  return -2;
-}
-
 export function applyScenarioPatch(
   signal: EnvironmentalSignal,
   patch?: ScenarioPatch | null
@@ -121,9 +109,8 @@ export function computeOracle(
     return total + rule.effect;
   }, 0);
 
-  const regionalBias = regionAffinity(asset, signal.region);
   const rawDelta =
-    contributions.reduce((sum, item) => sum + item.contribution, 0) + regionalBias + triggerBonus;
+    contributions.reduce((sum, item) => sum + item.contribution, 0) + triggerBonus;
 
   const earthDelta = round(clamp(rawDelta, -28, 32));
   const environmentalPressure = round(
@@ -158,7 +145,7 @@ export function computeOracle(
     cityAdvantage = round(earthDelta - compareOracle.earthDelta);
   }
 
-  const travelScore = clamp(Math.round(58 + earthDelta * 1.5 + regionalBias * 1.8), 1, 99);
+  const travelScore = clamp(Math.round(58 + earthDelta * 1.5), 1, 99);
 
   return {
     assetId: asset.id,
