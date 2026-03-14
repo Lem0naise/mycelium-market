@@ -78,6 +78,15 @@ export type OracleSpeech = {
   cooldownUntil: string;
 };
 
+/**
+ * Discriminated union returned by POST /api/oracle/speak.
+ * When the server lock is active it returns the `skipped` branch so the
+ * client can bail out without touching audio state.
+ */
+export type OracleSpeakResponse =
+  | { skipped: true; message: string; cooldownUntil: string }
+  | (OracleSpeech & { skipped?: false });
+
 export type MarketTicker = {
   assetId: string;
   price: number;

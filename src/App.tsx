@@ -250,6 +250,11 @@ function App() {
     if (!ORACLE_ENABLED || !audioEnabled) return;
 
     const scan = () => {
+      // Never overlap: skip the entire scan while a request is in-flight or
+      // audio is still playing.  The onended handler clears isOracleSpeakingRef;
+      // the mutation's onSettled clears speakPendingRef.
+      if (isOracleSpeakingRef.current || speakPendingRef.current) return;
+
       // Snapshot latest signals from the query cache
       const latestSignals: typeof signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
       if (!latestSignals.length) return;
@@ -305,9 +310,12 @@ function App() {
             speakMutation.mutate(
               { text: crossing.entry.speech, severity: "critical" },
               {
-                onSuccess: async (speech) => {
-                  pushOracleSpeech(speech);
-                  if (speech.audioUrl) await playBase64Audio(speech.audioUrl);
+                onSuccess: async (response) => {
+                  // Server returns { skipped: true } when the audio lock is active.
+                  // Bail out cleanly without touching oracle history or audio state.
+                  if (response.skipped) return;
+                  pushOracleSpeech(response);
+                  if (response.audioUrl) await playBase64Audio(response.audioUrl);
                 }
               }
             );

@@ -271,6 +271,28 @@ export const assetProfiles: AssetProfile[] = [
     ],
   },
   {
+    id: "IWG",
+    label: "IndoStock",
+    marketType: "stock",
+    symbol: "IWG",
+    basePrice: 6200,
+    accentColor: "#5fa81cff",
+    homeRegions: ["North America"],
+    ecologicalWeights: {
+      humidity: -0.9,
+      rain: 0.8,
+      temperature: 0.2,
+      wind: 0.3,
+      airQuality: -0.2,
+      soilMoisture: 0.2,
+      soilPh: 0.3
+    },
+    triggerRules: [
+      { kind: "drop", signal: "temperature", threshold: 15, effect: -5 },
+      { kind: "surge", signal: "airQuality", threshold: 50, effect: 3 }
+    ],
+  },
+  {
     id: "JMW",
     label: "JoshStock",
     marketType: "stock",

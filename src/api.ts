@@ -1,7 +1,7 @@
 import type {
   MarketsResponse,
   OracleSpeakRequest,
-  OracleSpeech,
+  OracleSpeakResponse,
   ScenarioPreviewRequest,
   ScenarioPreviewResponse,
   SignalsResponse
@@ -34,7 +34,7 @@ export function previewScenario(payload: ScenarioPreviewRequest) {
 }
 
 export function speakOracle(payload: OracleSpeakRequest) {
-  return requestJson<OracleSpeech>("/api/oracle/speak", {
+  return requestJson<OracleSpeakResponse>("/api/oracle/speak", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -43,14 +43,3 @@ export function speakOracle(payload: OracleSpeakRequest) {
   });
 }
 
-export const fetchFungalOracle = async (ticker: string) => {
-  const response = await fetch('/api/consult', { 
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ticker }),
-  });
-  
-  if (!response.ok) throw new Error('Network dormant');
-  
-  return await response.blob();
-};
