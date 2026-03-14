@@ -1,13 +1,19 @@
 import { Suspense, lazy, startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { fetchMarkets, fetchSignals, speakOracle } from "./api";
+import { fetchMarkets, speakOracle } from "./api";
 import { FeedPanel } from "./components/FeedPanel";
 import { MarketPanel } from "./components/MarketPanel";
-import { cities, cityIndex, assetProfiles } from "../shared/data";
+import { MyceliumWidget } from "./components/MyceliumWidget";
+import { assetProfiles, cities, cityIndex } from "../shared/data";
 import { useAppStore } from "./store/appStore";
 import { useTradingStore } from "./store/tradingStore";
-import { checkBoundaryCrossings, computeOracle, createScenarioSnapshot } from "../shared/oracle";
+import {
+  checkBoundaryCrossings,
+  computeOracle,
+  createFallbackSignals,
+  createScenarioSnapshot
+} from "../shared/oracle";
 import {
   applyStormEffectsToSignals,
   buildStormSnapshots,
@@ -19,11 +25,13 @@ import {
   getStormBlockedCityIds
 } from "../shared/simulation";
 import type {
+  EnvironmentalSignal,
   EventFeedItem,
   FlightState,
   OracleSpeakResponse,
   ScenarioPatch,
-  Severity
+  Severity,
+  StormSnapshot
 } from "../shared/types";
 import {
   type GlobeLoadStage,
@@ -142,6 +150,10 @@ function App() {
   const [isAppInteractive, setIsAppInteractive] = useState(false);
   const [loadStage, setLoadStage] = useState<GlobeLoadStage>("shell");
   const [simulationMs, setSimulationMs] = useState(0);
+  const [gameTick, setGameTick] = useState(0);
+  const [liveSignals, setLiveSignals] = useState<EnvironmentalSignal[]>(() =>
+    createFallbackSignals()
+  );
 
   const {
     selectedAssetId,
@@ -161,7 +173,7 @@ function App() {
     pushOracleSpeech
   } = useAppStore();
 
-  const { holdings, prices, changePct, tickPrices } = useTradingStore();
+  const { holdings, prices, changePct, tickPrices, recordSignals } = useTradingStore();
 
   const speakMutation = useMutation({ mutationFn: speakOracle });
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -173,6 +185,8 @@ function App() {
   const isOracleSpeakingRef = useRef(false);
   const speakPendingRef = useRef(false);
   const simulationStartRef = useRef<number | null>(null);
+  const liveSignalsRef = useRef<EnvironmentalSignal[]>(liveSignals);
+  const stormSnapshotsRef = useRef<StormSnapshot[]>([]);
 
   const queueOracleSpeech = (text: string, severity: Severity) => {
     if (!audioEnabled || isOracleSpeakingRef.current || speakPendingRef.current) {
@@ -261,13 +275,6 @@ function App() {
     refetchInterval: 15_000
   });
 
-  const signalsQuery = useQuery({
-    queryKey: ["signals"],
-    queryFn: () => fetchSignals("all"),
-    refetchInterval: 15_000
-  });
-
-  const baseSignals = signalsQuery.data?.signals ?? [];
   const baseTickers = marketsQuery.data?.tickers ?? [];
   const stormSystems = useMemo(() => createStormSystems(stormSeed), [stormSeed]);
   const stormSnapshots = useMemo(
@@ -275,17 +282,14 @@ function App() {
     [stormSystems, simulationMs]
   );
   const blockedCityIds = useMemo(() => getStormBlockedCityIds(stormSnapshots), [stormSnapshots]);
-  const blockedCityKey = useMemo(
-    () => [...blockedCityIds].sort().join(","),
-    [blockedCityIds]
-  );
+  const blockedCityKey = useMemo(() => [...blockedCityIds].sort().join(","), [blockedCityIds]);
   const scenarioPatch = useMemo(
     () => buildScenarioPatch(focusedCityId, scenario),
     [focusedCityId, scenario]
   );
   const stormAdjustedSignals = useMemo(
-    () => applyStormEffectsToSignals(baseSignals, stormSnapshots),
-    [baseSignals, stormSnapshots]
+    () => applyStormEffectsToSignals(liveSignals, stormSnapshots),
+    [liveSignals, stormSnapshots]
   );
   const scenarioSnapshot = useMemo(() => {
     if (!stormAdjustedSignals.length || !baseTickers.length) {
@@ -327,11 +331,11 @@ function App() {
     }
 
     if (blockedCityIds.has(currentCityId)) {
-      return `${cityIndex[currentCityId]?.name ?? currentCityId} sits inside a storm.`;
+      return `${cityIndex[currentCityId]?.name ?? currentCityId} sits inside a visible no-fly footprint.`;
     }
 
     if (blockedCityIds.has(focusedCityId)) {
-      return `${cityIndex[focusedCityId]?.name ?? focusedCityId} sits inside a storm.`;
+      return `${cityIndex[focusedCityId]?.name ?? focusedCityId} sits inside a visible no-fly footprint.`;
     }
 
     return null;
@@ -352,6 +356,14 @@ function App() {
 
     setFlight(createFlightState(currentCityId, focusedCityId, performance.now()));
   };
+
+  useEffect(() => {
+    liveSignalsRef.current = liveSignals;
+  }, [liveSignals]);
+
+  useEffect(() => {
+    stormSnapshotsRef.current = stormSnapshots;
+  }, [stormSnapshots]);
 
   useEffect(() => {
     let animationFrameId = 0;
@@ -698,29 +710,53 @@ function App() {
   }, [blockedCityIds, blockedCityKey, currentCityId, holdings, setFeed, simulationMs]);
 
   useEffect(() => {
-    if (!signals.length || !baseTickers.length) {
+    if (!baseTickers.length) {
       return;
     }
 
     const intervalId = window.setInterval(() => {
-      signals.forEach((citySignal) => {
-        const deltas: Record<string, number> = {};
-        baseTickers.forEach((ticker) => {
-          const assetProfile = assetProfiles.find((asset) => asset.id === ticker.assetId);
-          if (!assetProfile) {
-            return;
-          }
+      setGameTick((value) => value + 1);
 
-          const computation = computeOracle(assetProfile, citySignal, ticker.price);
-          deltas[ticker.assetId] = computation.earthDelta;
+      const freshSignals = createFallbackSignals();
+      liveSignalsRef.current = freshSignals;
+      setLiveSignals(freshSignals);
+
+      const effectiveSignals = applyStormEffectsToSignals(freshSignals, stormSnapshotsRef.current);
+      effectiveSignals.forEach((citySignal) => {
+        const deltas: Record<string, number> = {};
+        assetProfiles.forEach((assetProfile) => {
+          const baseTicker = baseTickers.find((ticker) => ticker.assetId === assetProfile.id);
+          const baselineValue = baseTicker?.price ?? assetProfile.basePrice;
+          const computation = computeOracle(assetProfile, citySignal, baselineValue);
+          deltas[assetProfile.id] = computation.earthDelta;
         });
 
         tickPrices(citySignal.cityId, deltas);
+        recordSignals(citySignal.cityId, citySignal);
       });
     }, 1000);
 
     return () => window.clearInterval(intervalId);
-  }, [baseTickers, signals, tickPrices]);
+  }, [baseTickers, recordSignals, tickPrices]);
+
+  const DAYS_PER_WEEK = 7;
+  const WEEKS_PER_YEAR = 52;
+  const DAYS_PER_YEAR = DAYS_PER_WEEK * WEEKS_PER_YEAR;
+  const START_YEAR = 2157;
+  const DAY_NAMES = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday"
+  ];
+
+  const fictionalYear = START_YEAR + Math.floor(gameTick / DAYS_PER_YEAR);
+  const dayOfYear = gameTick % DAYS_PER_YEAR;
+  const fictionalWeek = Math.floor(dayOfYear / DAYS_PER_WEEK) + 1;
+  const fictionalDayName = DAY_NAMES[dayOfYear % DAYS_PER_WEEK];
 
   const sideMotionProps = isAppInteractive
     ? {
@@ -763,35 +799,85 @@ function App() {
       <div className="starscape" />
 
       <AnimatePresence>
-        {isOracleSpeaking && (
+        {isOracleSpeaking ? (
           <motion.div
             className="fungal-overlay"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           />
-        )}
+        ) : null}
       </AnimatePresence>
 
-      {oracleFlash && <div className="oracle-flash-overlay" aria-hidden="true" />}
+      {oracleFlash ? <div className="oracle-flash-overlay" aria-hidden="true" /> : null}
 
       <header className="app-header">
         <div>
           <span className="eyebrow">Terra Arbitrage</span>
           <h1>The planet is the trader.</h1>
         </div>
-        <div className="header-stats">
-          <div>
-            <span>Tracked cities</span>
-            <strong>{cities.length}</strong>
+
+        <div
+          style={{
+            position: "absolute",
+            left: "50%",
+            transform: "translateX(-50%)",
+            textAlign: "center",
+            pointerEvents: "none",
+            userSelect: "none"
+          }}
+        >
+          <span
+            style={{
+              display: "block",
+              fontSize: "0.62rem",
+              fontWeight: "bold",
+              letterSpacing: "0.15em",
+              textTransform: "uppercase",
+              color: "var(--text-muted)",
+              marginBottom: "4px"
+            }}
+          >
+            Planetary Cycle
+          </span>
+          <div
+            style={{
+              fontSize: "clamp(1.6rem, 2.4vw, 2.8rem)",
+              fontWeight: "bold",
+              letterSpacing: "-0.03em",
+              lineHeight: 1,
+              color: "var(--text)"
+            }}
+          >
+            {fictionalDayName}
           </div>
-          <div>
-            <span>Storms in play</span>
-            <strong>{stormSnapshots.length}</strong>
+          <div
+            style={{
+              fontSize: "0.78rem",
+              color: "var(--text-muted)",
+              marginTop: "5px",
+              letterSpacing: "0.05em"
+            }}
+          >
+            Week {fictionalWeek} · Cycle {fictionalYear}
           </div>
-          <div>
-            <span>Flight status</span>
-            <strong>{describeFlightStatus(flight)}</strong>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "20px" }}>
+          <MyceliumWidget signals={signals} cityId={currentCityId} />
+          <div className="header-stats">
+            <div>
+              <span>Tracked cities</span>
+              <strong>{cities.length}</strong>
+            </div>
+            <div>
+              <span>Storms in play</span>
+              <strong>{stormSnapshots.length}</strong>
+            </div>
+            <div>
+              <span>Flight status</span>
+              <strong>{describeFlightStatus(flight)}</strong>
+            </div>
           </div>
         </div>
       </header>
@@ -842,7 +928,10 @@ function App() {
               </div>
               <div className="overlay-no-fly-panel">
                 <span className="eyebrow">Airspace Surface</span>
-                <p>Only the amber storm footprint painted on the globe is blocked. If a city sits inside that surface, you cannot depart or arrive there.</p>
+                <p>
+                  Only the amber storm footprint painted on the globe is blocked. If a city sits
+                  inside that surface, you cannot depart or arrive there.
+                </p>
               </div>
               {flight ? (
                 <div className="overlay-flight-chip">
@@ -861,6 +950,7 @@ function App() {
           <MarketPanel
             tickers={tickers}
             snapshot={scenarioSnapshot ?? undefined}
+            signals={signals}
             selectedAssetId={selectedAssetId}
             focusedCityId={focusedCityId}
             currentCityId={currentCityId}

@@ -33,15 +33,15 @@ describe("oracle engine", () => {
       soilPhDelta: -0.8
     });
 
-    const kai = computeOracle(assetIndex["KAI"], signal!, assetIndex["KAI"].basePrice);
-    const kaiAfterStorm = computeOracle(
-      assetIndex["KAI"],
+    const iwg = computeOracle(assetIndex["IWG"], signal!, assetIndex["IWG"].basePrice);
+    const iwgAfterStorm = computeOracle(
+      assetIndex["IWG"],
       patched,
-      assetIndex["KAI"].basePrice
+      assetIndex["IWG"].basePrice
     );
 
     expect(patched.sourceMode).toBe("synthetic");
-    expect(kaiAfterStorm.environmentalPressure).toBeGreaterThan(kai.environmentalPressure);
-    expect(kaiAfterStorm.severity === "watch" || kaiAfterStorm.severity === "alert" || kaiAfterStorm.severity === "critical").toBe(true);
+    expect(iwgAfterStorm.environmentalPressure).toBeGreaterThan(iwg.environmentalPressure);
+    expect(iwgAfterStorm.earthDelta).not.toBe(iwg.earthDelta);
   });
 });

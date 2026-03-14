@@ -150,13 +150,25 @@ export type FlightState = {
   isReturningHome: boolean;
 };
 
+export type MyceliumSignal = {
+  soilMoisture: number;
+  soilPh: number;
+  humidity: number;
+};
+
 export type TradeFailureReason =
   | "not-in-city"
   | "in-flight"
   | "storm-blocked"
   | "insufficient-cash"
   | "no-holdings"
-  | "ecological-interference";
+  | "ecological-interference"
+  | "mycelium-too-dry"
+  | "mycelium-waterlogged"
+  | "mycelium-too-acidic"
+  | "mycelium-too-alkaline"
+  | "mycelium-too-arid"
+  | "mycelium-oversaturated";
 
 export type TradeResult =
   | {
@@ -169,6 +181,7 @@ export type TradeResult =
   | {
       ok: false;
       reason: TradeFailureReason;
+      message?: string;
     };
 
 /**
