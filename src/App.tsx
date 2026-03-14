@@ -642,9 +642,9 @@ function App() {
       setLiveSignals(freshSignals);
 
       const effectiveSignals = applyStormEffectsToSignals(freshSignals, stormSnapshotsRef.current);
-      
-      const priceUpdates: Array<{cityId: string; earthDeltas: Record<string, number>; mycelium: { soilMoisture: number; soilPh: number; humidity: number }}> = [];
-      const signalUpdates: Array<{cityId: string; signals: EnvironmentalSignal}> = [];
+
+      const priceUpdates: Array<{ cityId: string; earthDeltas: Record<string, number>; mycelium: { soilMoisture: number; soilPh: number; humidity: number } }> = [];
+      const signalUpdates: Array<{ cityId: string; signals: EnvironmentalSignal }> = [];
 
       effectiveSignals.forEach((citySignal) => {
         const deltas: Record<string, number> = {};
@@ -665,13 +665,13 @@ function App() {
             humidity: citySignal.humidity,
           }
         });
-        
+
         signalUpdates.push({
           cityId: citySignal.cityId,
           signals: citySignal
         });
       });
-      
+
       tickAllPrices(priceUpdates);
       recordAllSignals(signalUpdates);
 

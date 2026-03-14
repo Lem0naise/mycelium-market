@@ -515,6 +515,7 @@ type SignalSimConfig = {
   jumpScale: number;       // impulse size = volatility × jumpScale
 };
 
+// WEATHER CHANGING!
 const SIGNAL_SIM: Record<SignalKey, SignalSimConfig> = {
   // Temperature: long, slow trends — can drift 15-20 °C over several minutes.
   temperature: { momentumDecay: 0.97, volatility: 0.06, meanRevStrength: 0.003, jumpProb: 0.005, jumpScale: 12 },
@@ -529,7 +530,7 @@ const SIGNAL_SIM: Record<SignalKey, SignalSimConfig> = {
   // Soil moisture: inertia-heavy, responds slowly.
   soilMoisture: { momentumDecay: 0.97, volatility: 0.12, meanRevStrength: 0.003, jumpProb: 0.003, jumpScale: 5 },
   // Soil pH: very stable, tiny fluctuations. //0.008 originally
-  soilPh: { momentumDecay: 0.98, volatility: 0.12, meanRevStrength: 0.003, jumpProb: 0.002, jumpScale: 5 },
+  soilPh: { momentumDecay: 0.98, volatility: 0.05, meanRevStrength: 0.003, jumpProb: 0.002, jumpScale: 5 },
 };
 
 // Persistent simulation state — survives across ticks for the lifetime of the page.

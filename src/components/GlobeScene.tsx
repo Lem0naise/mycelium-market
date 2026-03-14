@@ -639,8 +639,9 @@ function CityFlyPopup({
 
   const isBlocked =
     blockedCityIds.includes(focusedCityId) ||
-    blockedCityIds.includes(currentCityId) ||
-    Boolean(flight);
+    blockedCityIds.includes(currentCityId);
+
+  if (flight && !isBlocked) return null;
 
   const coords = globe.getCoords(focusedCity.lat, focusedCity.lon, 0.32);
   const position = new THREE.Vector3(
