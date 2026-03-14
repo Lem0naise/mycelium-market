@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useRef } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchMarkets, fetchSignals, previewScenario, speakOracle } from "./api";
@@ -10,6 +10,18 @@ import { useAppStore } from "./store/appStore";
 import type { ScenarioPatch } from "../shared/types";
 
 const GlobeScene = lazy(() => import("./components/GlobeScene"));
+
+function GlobeLoadingShell({ isBooting }: { isBooting: boolean }) {
+  return (
+    <div className="globe-loading" aria-live="polite" aria-busy="true">
+      <div className="globe-loading-card">
+        <span>Loading globe...</span>
+        <strong>{isBooting ? "Preparing planetary mesh" : "Starting 3D renderer"}</strong>
+        <p>The dashboard is live already. The globe will fade in as soon as it is ready.</p>
+      </div>
+    </div>
+  );
+}
 
 function App() {
   const {
@@ -80,6 +92,41 @@ function App() {
   }, [previewQuery.data, setFeed]);
 
   const latestSpeechRef = useRef("");
+  const [isGlobeMounted, setIsGlobeMounted] = useState(false);
+  const [isGlobeReady, setIsGlobeReady] = useState(false);
+
+  useEffect(() => {
+    let timeoutId: number | undefined;
+    let animationFrameId = 0;
+    let idleCallbackId: number | undefined;
+    const requestIdle = window.requestIdleCallback?.bind(window);
+    const cancelIdle = window.cancelIdleCallback?.bind(window);
+
+    const mountGlobe = () => {
+      setIsGlobeMounted(true);
+    };
+
+    animationFrameId = window.requestAnimationFrame(() => {
+      if (requestIdle) {
+        idleCallbackId = requestIdle(mountGlobe, { timeout: 1200 });
+        return;
+      }
+
+      timeoutId = window.setTimeout(mountGlobe, 180);
+    });
+
+    return () => {
+      if (typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+      if (idleCallbackId !== undefined && cancelIdle) {
+        cancelIdle(idleCallbackId);
+      }
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!audioEnabled || !previewQuery.data) {
@@ -167,15 +214,23 @@ function App() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.6 }}
         >
-          <Suspense fallback={<div className="globe-loading">Calibrating planetary mesh...</div>}>
-            <GlobeScene
-              selectedCityId={selectedCityId}
-              compareCityId={compareCityId}
-              selectedAssetId={selectedAssetId}
-              signals={signals}
-              rankings={previewQuery.data?.rankings ?? []}
-            />
-          </Suspense>
+          <div className={isGlobeReady ? "globe-stage is-ready" : "globe-stage"}>
+            {!isGlobeReady ? <GlobeLoadingShell isBooting={isGlobeMounted} /> : null}
+            {isGlobeMounted ? (
+              <div className={isGlobeReady ? "globe-scene-slot is-ready" : "globe-scene-slot"}>
+                <Suspense fallback={null}>
+                  <GlobeScene
+                    selectedCityId={selectedCityId}
+                    compareCityId={compareCityId}
+                    selectedAssetId={selectedAssetId}
+                    signals={signals}
+                    rankings={previewQuery.data?.rankings ?? []}
+                    onReady={() => setIsGlobeReady(true)}
+                  />
+                </Suspense>
+              </div>
+            ) : null}
+          </div>
           <div className="globe-overlay">
             <div className="overlay-panel">
               <span className="eyebrow">Selected city</span>

@@ -1,6 +1,6 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Html, OrbitControls, Stars } from "@react-three/drei";
-import { useEffect, useMemo, useRef } from "react";
+import { Html, OrbitControls } from "@react-three/drei";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import * as THREE from "three";
 import ThreeGlobe from "three-globe";
@@ -15,7 +15,10 @@ type GlobeSceneProps = {
   selectedAssetId: string;
   signals: EnvironmentalSignal[];
   rankings: RankedCity[];
+  onReady?: () => void;
 };
+
+type GlobeDetailStage = "base" | "full";
 
 type MapLabel = {
   id: string;
@@ -76,15 +79,18 @@ const globeTopology = countriesTopology as Record<string, unknown> & {
     countries: unknown;
   };
 };
-const countryPolygons = (
-  feature(globeTopology as never, globeTopology.objects.countries as never) as unknown as {
-    features: Array<{ geometry: GlobePolygonDatum["geometry"] | null }>;
-  }
-).features
-  .filter((entry): entry is { geometry: GlobePolygonDatum["geometry"] } => Boolean(entry.geometry))
-  .map<GlobePolygonDatum>((entry) => ({
-    geometry: entry.geometry
-  }));
+
+function buildCountryPolygons() {
+  return (
+    feature(globeTopology as never, globeTopology.objects.countries as never) as unknown as {
+      features: Array<{ geometry: GlobePolygonDatum["geometry"] | null }>;
+    }
+  ).features
+    .filter((entry): entry is { geometry: GlobePolygonDatum["geometry"] } => Boolean(entry.geometry))
+    .map<GlobePolygonDatum>((entry) => ({
+      geometry: entry.geometry
+    }));
+}
 
 function toRgba(hex: string, alpha: number) {
   const color = new THREE.Color(hex);
@@ -180,9 +186,21 @@ function buildCityLabels(selectedCityId: string, compareCityId: string | null) {
 function CityNameLabels({
   globe,
   selectedCityId,
-  compareCityId
-}: Pick<GlobeSceneProps, "selectedCityId" | "compareCityId"> & { globe: ThreeGlobe }) {
-  const labels = useMemo(() => buildCityLabels(selectedCityId, compareCityId), [selectedCityId, compareCityId]);
+  compareCityId,
+  detailStage
+}: Pick<GlobeSceneProps, "selectedCityId" | "compareCityId"> & {
+  globe: ThreeGlobe;
+  detailStage: GlobeDetailStage;
+}) {
+  const labels = useMemo(
+    () => {
+      const nextLabels = buildCityLabels(selectedCityId, compareCityId);
+      return detailStage === "full"
+        ? nextLabels
+        : nextLabels.filter((label) => label.isSelected || label.isCompare);
+    },
+    [compareCityId, detailStage, selectedCityId]
+  );
   const camera = useThree((state) => state.camera);
   const anchorRefs = useRef<Array<THREE.Group | null>>([]);
   const chipRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -192,11 +210,11 @@ function CityNameLabels({
   const globeScale = useMemo(() => baseRadius / globe.getGlobeRadius(), [globe]);
 
   useFrame(() => {
-    anchorRefs.current.forEach((anchor, index) => {
-      const chip = chipRefs.current[index];
-      if (!anchor || !chip) {
-        return;
-      }
+      anchorRefs.current.forEach((anchor, index) => {
+        const chip = chipRefs.current[index];
+        if (!anchor || !chip) {
+          return;
+        }
 
       anchor.getWorldPosition(worldPosition);
       normal.copy(worldPosition).normalize();
@@ -250,8 +268,36 @@ function CityNameLabels({
   );
 }
 
-function GlobeObject(props: GlobeSceneProps) {
+function GlobeReadySignal({ onReady }: { onReady?: () => void }) {
+  const hasReportedReady = useRef(false);
+
+  useEffect(() => {
+    if (!onReady || hasReportedReady.current) {
+      return;
+    }
+
+    let firstFrameId = 0;
+    let secondFrameId = 0;
+
+    firstFrameId = window.requestAnimationFrame(() => {
+      secondFrameId = window.requestAnimationFrame(() => {
+        hasReportedReady.current = true;
+        onReady();
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrameId);
+      window.cancelAnimationFrame(secondFrameId);
+    };
+  }, [onReady]);
+
+  return null;
+}
+
+function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeDetailStage }) {
   const camera = useThree((state) => state.camera);
+  const countryPolygons = useMemo(() => buildCountryPolygons(), []);
 
   const globe = useMemo(() => {
     const nextGlobe = new ThreeGlobe({
@@ -261,7 +307,7 @@ function GlobeObject(props: GlobeSceneProps) {
 
     nextGlobe.scale.setScalar(baseRadius / nextGlobe.getGlobeRadius());
     nextGlobe
-      .globeCurvatureResolution(5)
+      .globeCurvatureResolution(4)
       .showAtmosphere(true)
       .atmosphereColor("#9ad9d1")
       .atmosphereAltitude(0.038)
@@ -278,7 +324,7 @@ function GlobeObject(props: GlobeSceneProps) {
       .pointColor("color")
       .pointAltitude("altitude")
       .pointRadius("radius")
-      .pointResolution(10)
+      .pointResolution(7)
       .pointsMerge(false)
       .pointsTransitionDuration(300)
       .ringLat("lat")
@@ -315,19 +361,27 @@ function GlobeObject(props: GlobeSceneProps) {
     [props.signals, props.rankings, props.selectedCityId, props.compareCityId]
   );
   const ringData = useMemo(() => buildRingData(props.signals), [props.signals]);
-  const arcData = useMemo(() => buildArcData(props.selectedCityId, props.selectedAssetId), [props.selectedCityId, props.selectedAssetId]);
+  const arcData = useMemo(
+    () => buildArcData(props.selectedCityId, props.selectedAssetId),
+    [props.selectedCityId, props.selectedAssetId]
+  );
+  const basePointData = useMemo(
+    () => pointData.filter((point) => point.id === props.selectedCityId || point.id === props.compareCityId),
+    [pointData, props.selectedCityId, props.compareCityId]
+  );
+  const isFullDetail = props.detailStage === "full";
 
   useEffect(() => {
-    globe.pointsData(pointData);
-  }, [globe, pointData]);
+    globe.pointsData(isFullDetail ? pointData : basePointData);
+  }, [basePointData, globe, isFullDetail, pointData]);
 
   useEffect(() => {
-    globe.ringsData(ringData);
-  }, [globe, ringData]);
+    globe.ringsData(isFullDetail ? ringData : []);
+  }, [globe, isFullDetail, ringData]);
 
   useEffect(() => {
-    globe.arcsData(arcData);
-  }, [globe, arcData]);
+    globe.arcsData(isFullDetail ? arcData : []);
+  }, [arcData, globe, isFullDetail]);
 
   useFrame(() => {
     globe.setPointOfView(camera);
@@ -342,12 +396,44 @@ function GlobeObject(props: GlobeSceneProps) {
   return (
     <>
       <primitive object={globe} />
-      <CityNameLabels globe={globe} selectedCityId={props.selectedCityId} compareCityId={props.compareCityId} />
+      <CityNameLabels
+        globe={globe}
+        selectedCityId={props.selectedCityId}
+        compareCityId={props.compareCityId}
+        detailStage={props.detailStage}
+      />
     </>
   );
 }
 
 export function GlobeScene(props: GlobeSceneProps) {
+  const [detailStage, setDetailStage] = useState<GlobeDetailStage>("base");
+
+  useEffect(() => {
+    let timeoutId = 0;
+    let idleCallbackId: number | undefined;
+    const requestIdle = window.requestIdleCallback?.bind(window);
+
+    const enableFullDetail = () => {
+      setDetailStage("full");
+    };
+
+    if (requestIdle) {
+      idleCallbackId = requestIdle(enableFullDetail, { timeout: 1800 });
+    } else {
+      timeoutId = window.setTimeout(enableFullDetail, 900);
+    }
+
+    return () => {
+      if (idleCallbackId !== undefined && typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idleCallbackId);
+      }
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, []);
+
   return (
     <div className="globe-shell">
       <Canvas
@@ -359,10 +445,10 @@ export function GlobeScene(props: GlobeSceneProps) {
         <ambientLight intensity={0.94} color="#eef3f7" />
         <hemisphereLight args={["#f1f5f8", "#0a0d12", 0.4]} />
         <directionalLight position={[2.8, 1.1, 4.2]} intensity={0.14} color="#ffffff" />
-        <Stars radius={170} depth={48} count={1400} factor={3.3} saturation={0} fade speed={0.28} />
         <group rotation={[0, GLOBE_ROTATION_Y, 0]}>
-          <GlobeObject {...props} />
+          <GlobeObject {...props} detailStage={detailStage} />
         </group>
+        <GlobeReadySignal onReady={props.onReady} />
         <OrbitControls enablePan={false} minDistance={4.4} maxDistance={8.2} autoRotate autoRotateSpeed={0.18} />
       </Canvas>
       <div className="globe-label">

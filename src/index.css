@@ -272,6 +272,24 @@ button {
   min-height: 70vh;
 }
 
+.globe-stage {
+  position: relative;
+  min-height: 70vh;
+}
+
+.globe-scene-slot {
+  opacity: 0;
+  transform: scale(0.985);
+  transition:
+    opacity 360ms ease,
+    transform 360ms ease;
+}
+
+.globe-scene-slot.is-ready {
+  opacity: 1;
+  transform: scale(1);
+}
+
 .globe-shell {
   position: relative;
   height: 100%;
@@ -285,14 +303,50 @@ button {
 }
 
 .globe-loading {
+  position: absolute;
+  inset: 0;
   display: grid;
   place-items: center;
-  height: 100%;
   min-height: 70vh;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.globe-loading-card {
+  display: grid;
+  gap: 0.55rem;
+  width: min(24rem, calc(100% - 2.5rem));
+  padding: 1.2rem 1.3rem;
+  border-radius: 24px;
+  border: 1px solid rgba(150, 170, 184, 0.2);
+  background:
+    radial-gradient(circle at top, rgba(127, 242, 208, 0.14), transparent 48%),
+    linear-gradient(180deg, rgba(7, 11, 17, 0.96), rgba(5, 7, 13, 0.88));
+  box-shadow:
+    0 26px 60px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+}
+
+.globe-loading-card span {
   font-family: "IBM Plex Mono", monospace;
   color: #7ff2d0;
+  font-size: 0.74rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.globe-loading-card strong {
+  color: #eef3f7;
+  font-size: 1.12rem;
+  line-height: 1.2;
+}
+
+.globe-loading-card p {
+  margin: 0;
+  color: rgba(216, 224, 231, 0.72);
+  font-size: 0.94rem;
+  line-height: 1.5;
 }
 
 .globe-shell canvas {

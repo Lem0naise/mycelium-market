@@ -7,7 +7,16 @@ import type { MarketsResponse, ScenarioPreviewResponse, SignalsResponse } from "
 import { createFallbackSignals, createFallbackTickers, createScenarioPreview } from "../shared/oracle";
 
 vi.mock("../src/components/GlobeScene", () => ({
-  default: () => <div data-testid="globe-scene">globe</div>
+  default: ({ onReady }: { onReady?: () => void }) => (
+    <div>
+      <div data-testid="globe-scene">globe</div>
+      <div data-testid="globe-detail-stage">base</div>
+      <button type="button" onClick={onReady}>
+        ready
+      </button>
+      <button type="button">full-detail</button>
+    </div>
+  )
 }));
 
 const signalsPayload: SignalsResponse = {
@@ -35,8 +44,30 @@ const previewPayload: ScenarioPreviewResponse = createScenarioPreview(
 
 describe("App", () => {
   const originalFetch = global.fetch;
+  const originalRequestAnimationFrame = window.requestAnimationFrame;
+  const originalCancelAnimationFrame = window.cancelAnimationFrame;
+  const originalRequestIdleCallback = window.requestIdleCallback;
+  const originalCancelIdleCallback = window.cancelIdleCallback;
 
   beforeEach(() => {
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) =>
+      window.setTimeout(() => callback(performance.now()), 0)) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = ((handle: number) => {
+      window.clearTimeout(handle);
+    }) as typeof window.cancelAnimationFrame;
+    window.requestIdleCallback = ((callback: IdleRequestCallback) =>
+      window.setTimeout(
+        () =>
+          callback({
+            didTimeout: false,
+            timeRemaining: () => 50
+          }),
+        0
+      )) as typeof window.requestIdleCallback;
+    window.cancelIdleCallback = ((handle: number) => {
+      window.clearTimeout(handle);
+    }) as typeof window.cancelIdleCallback;
+
     global.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       const payload = url.includes("/api/markets")
@@ -63,6 +94,10 @@ describe("App", () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+    window.requestAnimationFrame = originalRequestAnimationFrame;
+    window.cancelAnimationFrame = originalCancelAnimationFrame;
+    window.requestIdleCallback = originalRequestIdleCallback;
+    window.cancelIdleCallback = originalCancelIdleCallback;
     vi.restoreAllMocks();
   });
 
@@ -74,6 +109,7 @@ describe("App", () => {
         }
       }
     });
+    const user = userEvent.setup();
 
     render(
       <QueryClientProvider client={client}>
@@ -82,13 +118,25 @@ describe("App", () => {
     );
 
     expect(await screen.findByText("The planet is the trader.")).toBeInTheDocument();
+    expect(screen.getByText("Loading globe...")).toBeInTheDocument();
+    expect(screen.queryByTestId("globe-scene")).not.toBeInTheDocument();
+
+    expect(await screen.findByTestId("globe-scene")).toBeInTheDocument();
+    expect(screen.getByTestId("globe-detail-stage")).toHaveTextContent("base");
     await waitFor(() => expect(screen.getByText("Cocoa Futures")).toBeInTheDocument());
 
     const assetSelect = screen.getByLabelText("Asset");
-    await userEvent.selectOptions(assetSelect, "BTC");
+    await user.selectOptions(assetSelect, "BTC");
 
     await waitFor(() => {
       expect(assetSelect).toHaveValue("BTC");
     });
+
+    await user.click(screen.getByRole("button", { name: "ready" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Loading globe...")).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: "full-detail" })).toBeInTheDocument();
   });
 });
