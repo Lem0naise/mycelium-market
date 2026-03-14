@@ -1,93 +1,240 @@
-import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Stars } from "@react-three/drei";
-import { useFrame } from "@react-three/fiber";
-import { useRef } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Html, OrbitControls, Stars } from "@react-three/drei";
+import { useEffect, useMemo, useRef } from "react";
+import type { CSSProperties } from "react";
 import * as THREE from "three";
+import ThreeGlobe from "three-globe";
+import { feature } from "topojson-client";
+import countriesTopology from "world-atlas/countries-50m.json";
 import { assetProfiles, cities, cityIndex } from "../../shared/data";
 import type { EnvironmentalSignal, RankedCity } from "../../shared/types";
 
 type GlobeSceneProps = {
   selectedCityId: string;
-  compareCityId: string | null;
   selectedAssetId: string;
   signals: EnvironmentalSignal[];
   rankings: RankedCity[];
 };
 
+type MapLabel = {
+  id: string;
+  text: string;
+  lat: number;
+  lng: number;
+  color: string;
+  altitude: number;
+  isSelected?: boolean;
+};
+
+type GlobePointDatum = {
+  id: string;
+  lat: number;
+  lng: number;
+  color: string;
+  altitude: number;
+  radius: number;
+};
+
+type GlobeRingDatum = {
+  id: string;
+  lat: number;
+  lng: number;
+  color: [string, string];
+  altitude: number;
+  maxRadius: number;
+  propagationSpeed: number;
+  repeatPeriod: number;
+};
+
+type GlobeArcDatum = {
+  id: string;
+  startLat: number;
+  startLng: number;
+  endLat: number;
+  endLng: number;
+  color: [string, string];
+  altitude: number;
+  dashLength: number;
+  dashGap: number;
+  dashInitialGap: number;
+  dashAnimateTime: number;
+};
+
+type GlobePolygonDatum = {
+  geometry: {
+    type: string;
+    coordinates: unknown[];
+  };
+};
+
 const baseRadius = 2.35;
+const GLOBE_ROTATION_Y = -0.55;
+const globeTopology = countriesTopology as Record<string, unknown> & {
+  objects: {
+    countries: unknown;
+  };
+};
+const countryPolygons = (
+  feature(globeTopology as never, globeTopology.objects.countries as never) as unknown as {
+    features: Array<{ geometry: GlobePolygonDatum["geometry"] | null }>;
+  }
+).features
+  .filter((entry): entry is { geometry: GlobePolygonDatum["geometry"] } => Boolean(entry.geometry))
+  .map<GlobePolygonDatum>((entry) => ({
+    geometry: entry.geometry
+  }));
 
-function latLonToVector(lat: number, lon: number, radius = baseRadius) {
-  const phi = (90 - lat) * (Math.PI / 180);
-  const theta = (lon + 180) * (Math.PI / 180);
+function toRgba(hex: string, alpha: number) {
+  const color = new THREE.Color(hex);
+  const red = Math.round(color.r * 255);
+  const green = Math.round(color.g * 255);
+  const blue = Math.round(color.b * 255);
 
-  return new THREE.Vector3(
-    -(radius * Math.sin(phi) * Math.cos(theta)),
-    radius * Math.cos(phi),
-    radius * Math.sin(phi) * Math.sin(theta)
-  );
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
-function GlobeBody() {
-  const meshRef = useRef<THREE.Mesh>(null);
+function buildPointData(
+  signals: EnvironmentalSignal[],
+  rankings: RankedCity[],
+  selectedCityId: string
+) {
+  return signals.map<GlobePointDatum>((signal) => {
+    const city = cityIndex[signal.cityId];
+    const ranking = rankings.find((item) => item.cityId === signal.cityId);
+    const intensity = (ranking?.travelScore ?? 40) / 100;
+    const isSelected = signal.cityId === selectedCityId;
 
-  useFrame((_state, delta) => {
-    if (meshRef.current) {
-      meshRef.current.rotation.y += delta * 0.04;
-    }
+    return {
+      id: signal.cityId,
+      lat: city.lat,
+      lng: city.lon,
+      color: isSelected ? "#f7ff96" : city.accentColor,
+      altitude: isSelected ? 0.13 : 0.05 + intensity * 0.04,
+      radius: isSelected ? 0.34 : 0.14 + intensity * 0.08
+    };
+  });
+}
+
+function buildRingData(signals: EnvironmentalSignal[]) {
+  return signals
+    .filter((signal) => signal.rain >= 7 || signal.wind >= 14)
+    .map<GlobeRingDatum>((signal) => {
+      const city = cityIndex[signal.cityId];
+      const strength = Math.min(1.35, signal.rain / 18 + signal.wind / 40);
+
+      return {
+        id: `${signal.cityId}-storm`,
+        lat: city.lat,
+        lng: city.lon,
+        color: [toRgba("#ffbb7d", 0.82), toRgba(city.accentColor, 0.02)],
+        altitude: 0.018,
+        maxRadius: 1.9 + strength * 2.8,
+        propagationSpeed: 0.65 + strength * 0.45,
+        repeatPeriod: 1100 + Math.round(850 / Math.max(strength, 0.25))
+      };
+    });
+}
+
+function buildArcData(selectedCityId: string, selectedAssetId: string) {
+  const selectedCity = cityIndex[selectedCityId];
+  const asset = assetProfiles.find((entry) => entry.id === selectedAssetId) ?? assetProfiles[0];
+  const targets = cities.filter((city) => asset.homeRegions.includes(city.region) && city.id !== selectedCityId);
+
+  return targets.map<GlobeArcDatum>((city, index) => ({
+    id: `${selectedCityId}-${city.id}`,
+    startLat: selectedCity.lat,
+    startLng: selectedCity.lon,
+    endLat: city.lat,
+    endLng: city.lon,
+    color: [toRgba(asset.accentColor, 0.9), toRgba(asset.accentColor, 0.12)],
+    altitude: 0.17,
+    dashLength: 0.32,
+    dashGap: 0.72,
+    dashInitialGap: index * 0.11,
+    dashAnimateTime: 2200 + index * 180
+  }));
+}
+
+function buildCityLabels(selectedCityId: string) {
+  return cities.map<MapLabel>((city) => {
+    const isSelected = city.id === selectedCityId;
+
+    return {
+      id: `city-${city.id}`,
+      text: city.name,
+      lat: city.lat,
+      lng: city.lon,
+      color: isSelected ? "#f7ff96" : "#d8e0e7",
+      altitude: isSelected ? 0.142 : 0.088,
+      isSelected
+    };
+  });
+}
+
+function CityNameLabels({
+  globe,
+  selectedCityId
+}: Pick<GlobeSceneProps, "selectedCityId"> & { globe: ThreeGlobe }) {
+  const labels = useMemo(() => buildCityLabels(selectedCityId), [selectedCityId]);
+  const camera = useThree((state) => state.camera);
+  const anchorRefs = useRef<Array<THREE.Group | null>>([]);
+  const chipRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const worldPosition = useMemo(() => new THREE.Vector3(), []);
+  const normal = useMemo(() => new THREE.Vector3(), []);
+  const toCamera = useMemo(() => new THREE.Vector3(), []);
+  const globeScale = useMemo(() => baseRadius / globe.getGlobeRadius(), [globe]);
+
+  useFrame(() => {
+    anchorRefs.current.forEach((anchor, index) => {
+      const chip = chipRefs.current[index];
+      if (!anchor || !chip) {
+        return;
+      }
+
+      anchor.getWorldPosition(worldPosition);
+      normal.copy(worldPosition).normalize();
+      toCamera.copy(camera.position).sub(worldPosition).normalize();
+
+      const isVisible = normal.dot(toCamera) > -0.06;
+      chip.style.opacity = isVisible ? "1" : "0";
+      chip.style.visibility = isVisible ? "visible" : "hidden";
+    });
   });
 
   return (
-    <group ref={meshRef}>
-      <mesh>
-        <sphereGeometry args={[baseRadius, 96, 96]} />
-        <meshStandardMaterial
-          color="#111317"
-          metalness={0.16}
-          roughness={0.82}
-          emissive="#101820"
-          emissiveIntensity={0.28}
-        />
-      </mesh>
-      <mesh scale={1.025}>
-        <sphereGeometry args={[baseRadius, 48, 48]} />
-        <meshBasicMaterial color="#30414f" wireframe opacity={0.18} transparent />
-      </mesh>
-      <mesh scale={1.09}>
-        <sphereGeometry args={[baseRadius, 48, 48]} />
-        <meshBasicMaterial color="#2ef4a1" transparent opacity={0.06} side={THREE.BackSide} />
-      </mesh>
-    </group>
-  );
-}
-
-function CityMarkers({
-  signals,
-  rankings,
-  selectedCityId,
-  compareCityId
-}: Pick<GlobeSceneProps, "signals" | "rankings" | "selectedCityId" | "compareCityId">) {
-  return (
     <group>
-      {signals.map((signal) => {
-        const city = cityIndex[signal.cityId];
-        const ranking = rankings.find((item) => item.cityId === signal.cityId);
-        const intensity = (ranking?.travelScore ?? 40) / 100;
-        const position = latLonToVector(city.lat, city.lon, baseRadius + 0.03);
-        const isSelected = signal.cityId === selectedCityId;
-        const isCompare = signal.cityId === compareCityId;
-        const scale = isSelected ? 0.15 : isCompare ? 0.12 : 0.07 + intensity * 0.06;
-        const color = isSelected ? "#f0ff85" : isCompare ? "#7fb9ff" : city.accentColor;
+      {labels.map((label, index) => {
+        const coords = globe.getCoords(label.lat, label.lng, label.altitude);
+        const position = new THREE.Vector3(
+          coords.x * globeScale,
+          coords.y * globeScale,
+          coords.z * globeScale
+        );
 
         return (
-          <group key={signal.cityId} position={position}>
-            <mesh scale={scale}>
-              <sphereGeometry args={[1, 16, 16]} />
-              <meshBasicMaterial color={color} />
-            </mesh>
-            <mesh scale={scale * (1.8 + signal.rain / 14)}>
-              <sphereGeometry args={[1, 16, 16]} />
-              <meshBasicMaterial color={color} transparent opacity={0.08 + intensity * 0.1} />
-            </mesh>
+          <group
+            key={label.id}
+            ref={(node) => {
+              anchorRefs.current[index] = node;
+            }}
+            position={position}
+          >
+            <Html center distanceFactor={10.2} sprite>
+              <div
+                ref={(node) => {
+                  chipRefs.current[index] = node;
+                }}
+                className={[
+                  "city-marker-label",
+                  label.isSelected ? "selected" : ""
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                style={{ "--city-label-color": label.color } as CSSProperties}
+              >
+                {label.text}
+              </div>
+            </Html>
           </group>
         );
       })}
@@ -95,81 +242,120 @@ function CityMarkers({
   );
 }
 
-function SignalStorms({ signals }: Pick<GlobeSceneProps, "signals">) {
-  return (
-    <group>
-      {signals
-        .filter((signal) => signal.rain >= 7 || signal.wind >= 14)
-        .map((signal) => {
-          const city = cityIndex[signal.cityId];
-          const position = latLonToVector(city.lat, city.lon, baseRadius + 0.14);
-          const strength = Math.min(1.8, signal.rain / 10 + signal.wind / 30);
+function GlobeObject(props: GlobeSceneProps) {
+  const camera = useThree((state) => state.camera);
 
-          return (
-            <group key={`${signal.cityId}-storm`} position={position}>
-              <mesh rotation={[Math.PI / 2, 0, 0]} scale={[0.18 * strength, 0.18 * strength, 0.18]}>
-                <torusGeometry args={[1, 0.08, 16, 64]} />
-                <meshBasicMaterial color="#ff9b5a" transparent opacity={0.55} />
-              </mesh>
-            </group>
-          );
-        })}
-    </group>
+  const globe = useMemo(() => {
+    const nextGlobe = new ThreeGlobe({
+      waitForGlobeReady: false,
+      animateIn: false
+    });
+
+    nextGlobe.scale.setScalar(baseRadius / nextGlobe.getGlobeRadius());
+    nextGlobe
+      .globeCurvatureResolution(5)
+      .showAtmosphere(true)
+      .atmosphereColor("#9ad9d1")
+      .atmosphereAltitude(0.038)
+      .polygonsData(countryPolygons)
+      .polygonGeoJsonGeometry("geometry")
+      .polygonCapColor(() => "#73797f")
+      .polygonSideColor(() => "#565d63")
+      .polygonStrokeColor(() => "#d8dde2")
+      .polygonAltitude(() => 0.006)
+      .polygonCapCurvatureResolution(() => 2.5)
+      .polygonsTransitionDuration(0)
+      .pointLat("lat")
+      .pointLng("lng")
+      .pointColor("color")
+      .pointAltitude("altitude")
+      .pointRadius("radius")
+      .pointResolution(10)
+      .pointsMerge(false)
+      .pointsTransitionDuration(300)
+      .ringLat("lat")
+      .ringLng("lng")
+      .ringColor("color")
+      .ringAltitude("altitude")
+      .ringMaxRadius("maxRadius")
+      .ringPropagationSpeed("propagationSpeed")
+      .ringRepeatPeriod("repeatPeriod")
+      .arcStartLat("startLat")
+      .arcStartLng("startLng")
+      .arcEndLat("endLat")
+      .arcEndLng("endLng")
+      .arcColor("color")
+      .arcAltitude("altitude")
+      .arcDashLength("dashLength")
+      .arcDashGap("dashGap")
+      .arcDashInitialGap("dashInitialGap")
+      .arcDashAnimateTime("dashAnimateTime")
+      .arcsTransitionDuration(300);
+
+    const globeMaterial = nextGlobe.globeMaterial() as THREE.MeshPhongMaterial;
+    globeMaterial.color = new THREE.Color("#030406");
+    globeMaterial.emissive = new THREE.Color("#080b10");
+    globeMaterial.emissiveIntensity = 0.8;
+    globeMaterial.specular = new THREE.Color("#0d1118");
+    globeMaterial.shininess = 2;
+
+    return nextGlobe;
+  }, []);
+
+  const pointData = useMemo(
+    () => buildPointData(props.signals, props.rankings, props.selectedCityId),
+    [props.signals, props.rankings, props.selectedCityId]
   );
-}
+  const ringData = useMemo(() => buildRingData(props.signals), [props.signals]);
+  const arcData = useMemo(() => buildArcData(props.selectedCityId, props.selectedAssetId), [props.selectedCityId, props.selectedAssetId]);
 
-function AssetArcs({
-  selectedCityId,
-  selectedAssetId
-}: Pick<GlobeSceneProps, "selectedCityId" | "selectedAssetId">) {
-  const selectedCity = cityIndex[selectedCityId];
-  const asset = assetProfiles.find((entry) => entry.id === selectedAssetId) ?? assetProfiles[0];
-  const targets = cities.filter((city) => asset.homeRegions.includes(city.region));
+  useEffect(() => {
+    globe.pointsData(pointData);
+  }, [globe, pointData]);
+
+  useEffect(() => {
+    globe.ringsData(ringData);
+  }, [globe, ringData]);
+
+  useEffect(() => {
+    globe.arcsData(arcData);
+  }, [globe, arcData]);
+
+  useFrame(() => {
+    globe.setPointOfView(camera);
+  });
+
+  useEffect(() => {
+    return () => {
+      globe._destructor();
+    };
+  }, [globe]);
 
   return (
-    <group>
-      {targets.map((city) => {
-        if (city.id === selectedCityId) {
-          return null;
-        }
-
-        const start = latLonToVector(selectedCity.lat, selectedCity.lon, baseRadius + 0.03);
-        const end = latLonToVector(city.lat, city.lon, baseRadius + 0.03);
-        const mid = start.clone().add(end).multiplyScalar(0.5).normalize().multiplyScalar(baseRadius + 0.8);
-        const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-        const points = curve.getPoints(40);
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-
-        return (
-          <line key={`${selectedCityId}-${city.id}`}>
-            <primitive attach="geometry" object={geometry} />
-            <lineBasicMaterial color={asset.accentColor} transparent opacity={0.42} />
-          </line>
-        );
-      })}
-    </group>
+    <>
+      <primitive object={globe} />
+      <CityNameLabels globe={globe} selectedCityId={props.selectedCityId} />
+    </>
   );
 }
 
 export function GlobeScene(props: GlobeSceneProps) {
   return (
     <div className="globe-shell">
-      <Canvas camera={{ position: [0, 0, 6.3], fov: 34 }}>
+      <Canvas
+        dpr={[1, 1.2]}
+        gl={{ antialias: true, powerPreference: "high-performance", alpha: false }}
+        camera={{ position: [0, 0, 6.3], fov: 34 }}
+      >
         <color attach="background" args={["#05070d"]} />
-        <ambientLight intensity={0.65} />
-        <directionalLight position={[5, 4, 4]} intensity={1.6} color="#ffedb0" />
-        <directionalLight position={[-4, -2, -3]} intensity={0.6} color="#7be8d8" />
-        <Stars radius={180} depth={50} count={6000} factor={4.4} saturation={0} fade speed={0.5} />
-        <GlobeBody />
-        <CityMarkers
-          signals={props.signals}
-          rankings={props.rankings}
-          selectedCityId={props.selectedCityId}
-          compareCityId={props.compareCityId}
-        />
-        <SignalStorms signals={props.signals} />
-        <AssetArcs selectedCityId={props.selectedCityId} selectedAssetId={props.selectedAssetId} />
-        <OrbitControls enablePan={false} minDistance={4.3} maxDistance={8.5} autoRotate autoRotateSpeed={0.2} />
+        <ambientLight intensity={0.94} color="#eef3f7" />
+        <hemisphereLight args={["#f1f5f8", "#0a0d12", 0.4]} />
+        <directionalLight position={[2.8, 1.1, 4.2]} intensity={0.14} color="#ffffff" />
+        <Stars radius={170} depth={48} count={1400} factor={3.3} saturation={0} fade speed={0.28} />
+        <group rotation={[0, GLOBE_ROTATION_Y, 0]}>
+          <GlobeObject {...props} />
+        </group>
+        <OrbitControls enablePan={false} minDistance={4.4} maxDistance={8.2} autoRotate autoRotateSpeed={0.18} />
       </Canvas>
       <div className="globe-label">
         <span>Terra Arbitrage</span>

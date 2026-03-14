@@ -4,9 +4,10 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchMarkets, fetchSignals, previewScenario, speakOracle } from "./api";
 import { FeedPanel } from "./components/FeedPanel";
 import { MarketPanel } from "./components/MarketPanel";
-import { ControlsBar } from "./components/ControlsBar";
-import { cities, cityIndex } from "../shared/data";
+import { cities, cityIndex, assetProfiles } from "../shared/data";
 import { useAppStore } from "./store/appStore";
+import { useTradingStore } from "./store/tradingStore";
+import { computeOracle } from "../shared/oracle";
 import type { ScenarioPatch } from "../shared/types";
 import { AnimatePresence } from "framer-motion";
 
@@ -17,62 +18,39 @@ function App() {
   const {
     selectedAssetId,
     selectedCityId,
-    compareCityId,
-    liveMode,
     audioEnabled,
     scenario,
     oracleHistory,
     feedHistory,
     setAsset,
     setCity,
-    setCompareCity,
-    setLiveMode,
-    toggleAudio,
-    setScenarioValue,
-    resetScenario,
-    pushOracleSpeech,
-    setFeed
+    setFeed,
+    pushOracleSpeech
   } = useAppStore();
 
-  const scenarioPatch: ScenarioPatch | null = useMemo(() => {
-    const hasAnyDelta = Object.values(scenario).some((value) => value !== 0);
-    if (!hasAnyDelta) {
-      return null;
-    }
-
-    return {
-      targetCityId: selectedCityId,
-      ...scenario
-    };
-  }, [scenario, selectedCityId]);
+  const { prices, tickPrices } = useTradingStore();
 
   const marketsQuery = useQuery({
-    queryKey: ["markets", liveMode],
-    queryFn: () => fetchMarkets(liveMode),
+    queryKey: ["markets", "live"],
+    queryFn: () => fetchMarkets("live"),
     refetchInterval: 15_000
   });
 
   const signalsQuery = useQuery({
-    queryKey: ["signals", liveMode],
-    queryFn: () => fetchSignals(liveMode, "all"),
+    queryKey: ["signals", "live"],
+    queryFn: () => fetchSignals("live", "all"),
     refetchInterval: 15_000
   });
 
   const previewQuery = useQuery({
-    queryKey: ["preview", liveMode, selectedAssetId, selectedCityId, compareCityId, scenarioPatch],
+    queryKey: ["preview", "live", selectedAssetId, selectedCityId],
     queryFn: () =>
       previewScenario({
         assetId: selectedAssetId,
         cityId: selectedCityId,
-        compareCityId: compareCityId ?? undefined,
-        patch: scenarioPatch,
-        mode: liveMode
+        mode: "live"
       }),
     enabled: marketsQuery.isSuccess
-  });
-
-  const speakMutation = useMutation({
-    mutationFn: speakOracle
   });
 
   useEffect(() => {
@@ -81,8 +59,17 @@ function App() {
     }
   }, [previewQuery.data, setFeed]);
 
-  const latestSpeechRef = useRef("");
+  const signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
+  const baseTickers = marketsQuery.data?.tickers ?? [];
 
+  // Map our custom local storage prices over the base tickers
+  const tickers = baseTickers.map(t => ({
+    ...t,
+    price: prices[t.assetId] ?? t.price
+  }));
+
+  
+  // Global price tick effect
   useEffect(() => {
     if (!audioEnabled || !previewQuery.data) return;
 
@@ -149,6 +136,30 @@ const handleManualSpeak = async () => {
   const signals = previewQuery.data?.signals ?? signalsQuery.data?.signals ?? [];
   const tickers = marketsQuery.data?.tickers ?? [];
 
+  if (!signals.length) return;
+
+    const interval = setInterval(() => {
+      // Calculate Earth Delta for ALL assets for the currently selected city
+      const currentCitySignal = signals.find(s => s.cityId === selectedCityId) ?? signals[0];
+      if (!currentCitySignal) return;
+
+      const deltas: Record<string, number> = {};
+      baseTickers.forEach(t => {
+        // computeOracle normally takes assetProfile, signal, baselineValue. 
+        // For ticking, we just need the earthDelta.
+        const assetProfile = require('../shared/data').assetProfiles.find((a: any) => a.id === t.assetId);
+        if (assetProfile) {
+          const comp = computeOracle(assetProfile, currentCitySignal, t.price);
+          deltas[t.assetId] = comp.earthDelta;
+        }
+      });
+      
+      tickPrices(deltas);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [signals, selectedCityId, baseTickers, tickPrices]);
+  
   return (
     <div className={`app-shell ${isOracleSpeaking ? "oracle-active" : ""}`}>
       <div className="starscape" />
@@ -176,10 +187,8 @@ const handleManualSpeak = async () => {
             <strong>{liveMode.toUpperCase()}</strong>
           </div>
           <div>
-            <span>Market Pulse</span>
-            <strong className={isOracleSpeaking ? "text-glow" : ""}>
-              {isOracleSpeaking ? "SENSING..." : "SYNCED"}
-            </strong>
+            <span>Tracked cities</span>
+            <strong>{cities.length}</strong>
           </div>
           <div>
             <span>Primary spread</span>
@@ -208,7 +217,7 @@ const handleManualSpeak = async () => {
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <FeedPanel feed={feedHistory} oracleHistory={oracleHistory} />
+          <FeedPanel feed={feedHistory} oracleHistory={[]} />
         </motion.div>
 
         <motion.section
@@ -220,21 +229,24 @@ const handleManualSpeak = async () => {
           <Suspense fallback={<div className="globe-loading">Calibrating planetary mesh...</div>}>
             <GlobeScene
               selectedCityId={selectedCityId}
-              compareCityId={compareCityId}
               selectedAssetId={selectedAssetId}
               signals={signals}
               rankings={previewQuery.data?.rankings ?? []}
             />
           </Suspense>
           <div className="globe-overlay">
-            <div className={`overlay-panel ${isOracleSpeaking ? 'bloom-glow' : ''}`}>
-              <span className="eyebrow">
-                {isOracleSpeaking ? "Oracle Communing..." : "Selected city"}
-              </span>
+            <div className="overlay-panel">
+              <span className="eyebrow">Selected city</span>
               <strong>{cityIndex[selectedCityId]?.name}</strong>
               <p>{previewQuery.data?.oracleText ?? "Waiting for planetary repricing."}</p>
             </div>
-            {/* ... rest of panels */}
+            <div className="overlay-panel">
+              <span className="eyebrow">Signal mode</span>
+              <strong>{signalsQuery.data?.sourceMode ?? "fallback"}</strong>
+              <p>
+                Hybrid weather and atmospheric signals with regional soil baselines and dramatic fallback events.
+              </p>
+            </div>
           </div>
         </motion.section>
 
@@ -249,26 +261,10 @@ const handleManualSpeak = async () => {
             preview={previewQuery.data}
             selectedAssetId={selectedAssetId}
             selectedCityId={selectedCityId}
-            compareCityId={compareCityId}
+            onSelectAsset={setAsset}
           />
         </motion.div>
       </main>
-
-      <ControlsBar
-        selectedAssetId={selectedAssetId}
-        selectedCityId={selectedCityId}
-        compareCityId={compareCityId}
-        liveMode={liveMode}
-        audioEnabled={audioEnabled}
-        scenario={scenario}
-        onAssetChange={setAsset}
-        onCityChange={setCity}
-        onCompareChange={setCompareCity}
-        onModeChange={setLiveMode}
-        onScenarioChange={setScenarioValue}
-        onResetScenario={resetScenario}
-        onToggleAudio={toggleAudio}
-      />
     </div>
   );
 }
