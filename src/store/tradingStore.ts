@@ -313,7 +313,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       updates.forEach(({ cityId, earthDeltas, mycelium }) => {
         const newCityPrices = { ...newPrices[cityId] };
         const newCityChangePct = { ...newChangePct[cityId] };
-        const cityPriceHistory = state.priceHistory[cityId] || {};
+        const cityPriceHistory = { ...(state.priceHistory[cityId] || {}) };
 
         const pH = mycelium?.soilPh ?? 6.5;
         const pHVolatilityFactor = pH < 5.5 ? 2 : pH > 7.5 ? 0.5 : 1; // VOLATILITY OF PH of soil
@@ -334,12 +334,14 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
           let history = cityPriceHistory[assetId];
           if (!history) {
             history = [basePrice];
-            cityPriceHistory[assetId] = history;
+          } else {
+            history = [...history];
           }
           history.push(newPrice);
           if (history.length > WINDOW) {
             history.shift();
           }
+          cityPriceHistory[assetId] = history;
 
           const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;
           newCityChangePct[assetId] = Number(rawChangePct.toFixed(2));
@@ -373,7 +375,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       const newSignalHistory = { ...state.signalHistory };
 
       updates.forEach(({ cityId, signals }) => {
-        const cityHistory = state.signalHistory[cityId] || {};
+        const cityHistory = { ...(state.signalHistory[cityId] || {}) };
 
         (Object.keys(signals) as SignalKey[]).forEach((key) => {
           const value = signals[key];
@@ -384,12 +386,14 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
           let history = cityHistory[key];
           if (!history) {
             history = [];
-            cityHistory[key] = history;
+          } else {
+            history = [...history];
           }
           history.push(value);
           if (history.length > WINDOW) {
             history.shift();
           }
+          cityHistory[key] = history;
         });
 
         newSignalHistory[cityId] = cityHistory;

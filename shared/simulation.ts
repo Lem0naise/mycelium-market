@@ -749,7 +749,14 @@ function getOrCreateStormFieldCache(storms: StormSystem[]) {
 
 function pruneStormFieldCache(cache: StormFieldCache, latestTimeMs: number) {
   const minimumTimeMs = Math.max(0, latestTimeMs - STORM_CACHE_RETAIN_MS);
-  const firstRetainedIndex = cache.frames.findIndex((frame) => frame.timeMs >= minimumTimeMs);
+  
+  let firstRetainedIndex = 0;
+  for (let i = 0; i < cache.frames.length; i++) {
+    if (cache.frames[i].timeMs >= minimumTimeMs) {
+      firstRetainedIndex = i;
+      break;
+    }
+  }
 
   if (firstRetainedIndex <= 1) {
     return;
@@ -764,11 +771,15 @@ function ensureStormFieldThrough(
   targetTimeMs: number
 ) {
   const normalizedTargetMs = Math.max(0, Math.ceil(targetTimeMs / STORM_STEP_MS) * STORM_STEP_MS);
-  let latestFrame = cache.frames[cache.frames.length - 1];
 
   if (normalizedTargetMs < cache.frames[0].timeMs) {
     cache.frames = [createInitialStormFieldFrame(storms)];
-    latestFrame = cache.frames[0];
+  }
+
+  let latestFrame = cache.frames[cache.frames.length - 1];
+
+  if (normalizedTargetMs <= latestFrame.timeMs) {
+    return;
   }
 
   const MAX_CATCH_UP_MS = 2000;
@@ -819,10 +830,22 @@ function getStormFieldFrameAt(storms: StormSystem[], elapsedMs: number) {
 
   const lowerTimeMs = Math.floor(safeElapsedMs / STORM_STEP_MS) * STORM_STEP_MS;
   const upperTimeMs = Math.ceil(safeElapsedMs / STORM_STEP_MS) * STORM_STEP_MS;
-  const lowerFrame =
-    cache.frames.find((frame) => frame.timeMs === lowerTimeMs) ?? cache.frames[0];
-  const upperFrame =
-    cache.frames.find((frame) => frame.timeMs === upperTimeMs) ?? cache.frames[cache.frames.length - 1];
+  
+  let lowerFrame = cache.frames[0];
+  for (let i = cache.frames.length - 1; i >= 0; i--) {
+    if (cache.frames[i].timeMs <= lowerTimeMs) {
+      lowerFrame = cache.frames[i];
+      break;
+    }
+  }
+
+  let upperFrame = cache.frames[cache.frames.length - 1];
+  for (let i = 0; i < cache.frames.length; i++) {
+    if (cache.frames[i].timeMs >= upperTimeMs) {
+      upperFrame = cache.frames[i];
+      break;
+    }
+  }
 
   if (lowerTimeMs === upperTimeMs) {
     return cloneStormFieldFrame(lowerFrame);
