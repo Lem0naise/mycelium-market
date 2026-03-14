@@ -357,9 +357,19 @@ button {
   box-shadow:
     0 6px 14px rgba(0, 0, 0, 0.24),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   transform: translate(7px, -2px);
-  transition: opacity 120ms linear;
+  transition: opacity 120ms linear, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.city-marker-label:hover {
+  opacity: 0.85;
+  transform: translate(7px, -2px) scale(1.12);
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.32),
+    0 0 0 1px color-mix(in srgb, var(--city-label-color) 40%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
 .city-marker-label.selected {

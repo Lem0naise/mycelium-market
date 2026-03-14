@@ -12,6 +12,8 @@ import { AnimatePresence } from "framer-motion";
 
 const GlobeScene = lazy(() => import("./components/GlobeScene"));
 
+const ORACLE_ENABLED = false;
+
 function App() {
   const [isOracleSpeaking, setIsOracleSpeaking] = useState(false);
   const {
@@ -20,6 +22,7 @@ function App() {
     audioEnabled,
     feedHistory,
     setAsset,
+    setCity,
     setFeed,
     pushOracleSpeech
   } = useAppStore();
@@ -70,6 +73,7 @@ function App() {
 
   // Automated Oracle speech effect
   useEffect(() => {
+    if (!ORACLE_ENABLED) return;
     if (!audioEnabled || !previewQuery.data) return;
 
     const { primary, oracleText } = previewQuery.data;
@@ -193,11 +197,12 @@ function App() {
               selectedAssetId={selectedAssetId}
               signals={signals}
               rankings={previewQuery.data?.rankings ?? []}
+              onSelectCity={setCity}
             />
           </Suspense>
           <div className="globe-overlay">
             <div className="overlay-panel">
-              <span className="eyebrow">Selected city</span>
+              <span className="eyebrow">Selected city — click globe to change</span>
               <strong>{cityIndex[selectedCityId]?.name}</strong>
               <p>{previewQuery.data?.oracleText ?? "Waiting for planetary repricing."}</p>
             </div>

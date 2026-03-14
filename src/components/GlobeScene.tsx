@@ -14,10 +14,12 @@ type GlobeSceneProps = {
   selectedAssetId: string;
   signals: EnvironmentalSignal[];
   rankings: RankedCity[];
+  onSelectCity?: (cityId: string) => void;
 };
 
 type MapLabel = {
   id: string;
+  cityId: string;
   text: string;
   lat: number;
   lng: number;
@@ -161,6 +163,7 @@ function buildCityLabels(selectedCityId: string) {
 
     return {
       id: `city-${city.id}`,
+      cityId: city.id,
       text: city.name,
       lat: city.lat,
       lng: city.lon,
@@ -173,8 +176,9 @@ function buildCityLabels(selectedCityId: string) {
 
 function CityNameLabels({
   globe,
-  selectedCityId
-}: Pick<GlobeSceneProps, "selectedCityId"> & { globe: ThreeGlobe }) {
+  selectedCityId,
+  onSelectCity
+}: Pick<GlobeSceneProps, "selectedCityId" | "onSelectCity"> & { globe: ThreeGlobe }) {
   const labels = useMemo(() => buildCityLabels(selectedCityId), [selectedCityId]);
   const camera = useThree((state) => state.camera);
   const anchorRefs = useRef<Array<THREE.Group | null>>([]);
@@ -220,7 +224,7 @@ function CityNameLabels({
             position={position}
           >
             <Html center distanceFactor={10.2} sprite>
-              <div
+               <div
                 ref={(node) => {
                   chipRefs.current[index] = node;
                 }}
@@ -231,6 +235,7 @@ function CityNameLabels({
                   .filter(Boolean)
                   .join(" ")}
                 style={{ "--city-label-color": label.color } as CSSProperties}
+                onClick={() => onSelectCity?.(label.cityId)}
               >
                 {label.text}
               </div>
@@ -334,7 +339,7 @@ function GlobeObject(props: GlobeSceneProps) {
   return (
     <>
       <primitive object={globe} />
-      <CityNameLabels globe={globe} selectedCityId={props.selectedCityId} />
+      <CityNameLabels globe={globe} selectedCityId={props.selectedCityId} onSelectCity={props.onSelectCity} />
     </>
   );
 }
