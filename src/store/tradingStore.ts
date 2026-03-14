@@ -27,8 +27,8 @@ export type TradingState = {
     mycelium: MyceliumSignal,
     quantity?: number
   ) => Promise<TradeResult>;
-  tickPrices: (cityId: string, earthDeltas: Record<string, number>, mycelium?: MyceliumSignal) => void;
-  recordSignals: (cityId: string, signals: Partial<Record<SignalKey, number>>) => void;
+  tickAllPrices: (updates: Array<{cityId: string; earthDeltas: Record<string, number>; mycelium?: MyceliumSignal}>) => void;
+  recordAllSignals: (updates: Array<{cityId: string; signals: Partial<Record<SignalKey, number>>}>) => void;
   resetPortfolio: () => void;
 };
 
@@ -303,47 +303,49 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
     };
   },
 
-  tickPrices: (cityId, earthDeltas, mycelium?) =>
+  tickAllPrices: (updates) =>
     set((state) => {
-      const newCityPrices = { ...state.prices[cityId] };
-      const newCityChangePct = { ...state.changePct[cityId] };
-      const newCityPriceHistory = { ...state.priceHistory[cityId] };
+      const newPrices = { ...state.prices };
+      const newPriceHistory = { ...state.priceHistory };
+      const newChangePct = { ...state.changePct };
 
-      // ── pH Volatility Catalyst ──────────────────────────────────────────────
-      // pH < 5.5 (Acidic):  5× environmental impact, 3× random noise — high beta
-      // pH > 7.5 (Alkaline): 0.2× dampener — prices stabilise, acts like a safe haven
-      const pH = mycelium?.soilPh ?? 6.5;
-      const pHVolatilityFactor = pH < 5.5 ? 5 : pH > 7.5 ? 0.2 : 1;
+      updates.forEach(({ cityId, earthDeltas, mycelium }) => {
+        const newCityPrices = { ...newPrices[cityId] };
+        const newCityChangePct = { ...newChangePct[cityId] };
+        const newCityPriceHistory = { ...newPriceHistory[cityId] };
 
-      Object.keys(newCityPrices).forEach((assetId) => {
-        const delta = earthDeltas[assetId] || 0;
-        const oldPrice = newCityPrices[assetId];
-        const basePrice = assetIndex[assetId]?.basePrice ?? oldPrice;
+        const pH = mycelium?.soilPh ?? 6.5;
+        const pHVolatilityFactor = pH < 5.5 ? 5 : pH > 7.5 ? 0.2 : 1;
 
-        // Environmental impact — scaled by pH volatility
-        const logShift = delta * 0.006 * pHVolatilityFactor;
+        Object.keys(newCityPrices).forEach((assetId) => {
+          const delta = earthDeltas[assetId] || 0;
+          const oldPrice = newCityPrices[assetId];
+          const basePrice = assetIndex[assetId]?.basePrice ?? oldPrice;
 
-        // Mean reversion — unchanged (kept loose)
-        const meanRevPull = -0.001 * (Math.log(oldPrice) - Math.log(basePrice));
+          const logShift = delta * 0.006 * pHVolatilityFactor;
+          const meanRevPull = -0.001 * (Math.log(oldPrice) - Math.log(basePrice));
+          const logNoise = (Math.random() - 0.5) * 0.03 * pHVolatilityFactor;
 
-        // Random noise — also scaled by pH volatility
-        const logNoise = (Math.random() - 0.5) * 0.03 * pHVolatilityFactor;
+          const newPrice = Math.max(0.01, Math.exp(Math.log(oldPrice) + logShift + meanRevPull + logNoise));
+          newCityPrices[assetId] = newPrice;
 
-        const newPrice = Math.max(0.01, Math.exp(Math.log(oldPrice) + logShift + meanRevPull + logNoise));
-        newCityPrices[assetId] = newPrice;
+          const WINDOW = 40;
+          const prevHistory = newCityPriceHistory[assetId] || [basePrice];
+          newCityPriceHistory[assetId] = [...prevHistory, newPrice].slice(-WINDOW);
 
-        const WINDOW = 40;
-        const prevHistory = newCityPriceHistory[assetId] || [basePrice];
-        newCityPriceHistory[assetId] = [...prevHistory, newPrice].slice(-WINDOW);
+          const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;
+          newCityChangePct[assetId] = Number(rawChangePct.toFixed(2));
+        });
 
-        const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;
-        newCityChangePct[assetId] = Number(rawChangePct.toFixed(2));
+        newPrices[cityId] = newCityPrices;
+        newPriceHistory[cityId] = newCityPriceHistory;
+        newChangePct[cityId] = newCityChangePct;
       });
 
       return {
-        prices: { ...state.prices, [cityId]: newCityPrices },
-        priceHistory: { ...state.priceHistory, [cityId]: newCityPriceHistory },
-        changePct: { ...state.changePct, [cityId]: newCityChangePct }
+        prices: newPrices,
+        priceHistory: newPriceHistory,
+        changePct: newChangePct
       };
     }),
 
@@ -357,26 +359,29 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       signalHistory: {}
     }),
 
-  recordSignals: (cityId, signals) =>
+  recordAllSignals: (updates) =>
     set((state) => {
       const WINDOW = 10;
-      const cityHistory = { ...(state.signalHistory[cityId] ?? {}) };
+      const newSignalHistory = { ...state.signalHistory };
 
-      (Object.keys(signals) as SignalKey[]).forEach((key) => {
-        const value = signals[key];
-        if (value === undefined) {
-          return;
-        }
+      updates.forEach(({ cityId, signals }) => {
+        const cityHistory = { ...(newSignalHistory[cityId] ?? {}) };
 
-        const previous = cityHistory[key] ?? [];
-        cityHistory[key] = [...previous, value].slice(-WINDOW);
+        (Object.keys(signals) as SignalKey[]).forEach((key) => {
+          const value = signals[key];
+          if (value === undefined) {
+            return;
+          }
+
+          const previous = cityHistory[key] ?? [];
+          cityHistory[key] = [...previous, value].slice(-WINDOW);
+        });
+
+        newSignalHistory[cityId] = cityHistory;
       });
 
       return {
-        signalHistory: {
-          ...state.signalHistory,
-          [cityId]: cityHistory
-        }
+        signalHistory: newSignalHistory
       };
     })
 }));

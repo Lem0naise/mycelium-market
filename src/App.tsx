@@ -170,7 +170,7 @@ function App() {
     pushOracleSpeech
   } = useAppStore();
 
-  const { cash, holdings, prices, changePct, tickPrices, recordSignals } = useTradingStore();
+  const { cash, holdings, prices, changePct, tickAllPrices, recordAllSignals } = useTradingStore();
 
   const speakMutation = useMutation({ mutationFn: speakOracle });
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -421,7 +421,7 @@ function App() {
       }
 
       const elapsedMs = now - simulationStartRef.current;
-      if (elapsedMs - lastCommittedMs >= 50) {
+      if (elapsedMs - lastCommittedMs >= 500) {
         startTransition(() => {
           setSimulationMs(elapsedMs);
         });
@@ -642,6 +642,10 @@ function App() {
       setLiveSignals(freshSignals);
 
       const effectiveSignals = applyStormEffectsToSignals(freshSignals, stormSnapshotsRef.current);
+      
+      const priceUpdates: Array<{cityId: string; earthDeltas: Record<string, number>; mycelium: { soilMoisture: number; soilPh: number; humidity: number }}> = [];
+      const signalUpdates: Array<{cityId: string; signals: EnvironmentalSignal}> = [];
+
       effectiveSignals.forEach((citySignal) => {
         const deltas: Record<string, number> = {};
         const prevSignal = prevSignalsRef.current[citySignal.cityId];
@@ -652,13 +656,24 @@ function App() {
           });
         }
 
-        tickPrices(citySignal.cityId, deltas, {
-          soilMoisture: citySignal.soilMoisture,
-          soilPh: citySignal.soilPh,
-          humidity: citySignal.humidity,
+        priceUpdates.push({
+          cityId: citySignal.cityId,
+          earthDeltas: deltas,
+          mycelium: {
+            soilMoisture: citySignal.soilMoisture,
+            soilPh: citySignal.soilPh,
+            humidity: citySignal.humidity,
+          }
         });
-        recordSignals(citySignal.cityId, citySignal);
+        
+        signalUpdates.push({
+          cityId: citySignal.cityId,
+          signals: citySignal
+        });
       });
+      
+      tickAllPrices(priceUpdates);
+      recordAllSignals(signalUpdates);
 
       // Snapshot this tick's signals so the next tick can compute deltas
       prevSignalsRef.current = Object.fromEntries(
@@ -667,7 +682,7 @@ function App() {
     }, 1000);
 
     return () => window.clearInterval(intervalId);
-  }, [baseTickers, recordSignals, tickPrices]);
+  }, [baseTickers, recordAllSignals, tickAllPrices]);
 
   const DAYS_PER_WEEK = 7;
   const WEEKS_PER_YEAR = 52;
