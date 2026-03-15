@@ -96,8 +96,8 @@ export function MarketPanel({
   const isSaturated = currentMycelium.soilMoisture > 80;
   const isWilting = currentMycelium.soilMoisture < 20;
   // Saturated: trade quantities scale 10×; Wilting: normal quantities but capped by spend
-  const buyQuantities: readonly number[] = isSaturated ? ([10, 100, 1000] as const) : ([1, 10, 100] as const);
-  const sellQuantities: readonly number[] = [1, 10, 100] as const;
+  const buyQuantities: readonly number[] = isSaturated ? ([10, 100, 1000] as const) : ([1, 10, 100, 1000] as const);
+  const sellQuantities: readonly number[] = [1, 10, 100, 1000] as const;
   // Max spend per trade when wilting: 10% of cash
   const maxSpendWilting = isWilting ? cash * 0.1 : Infinity;
 

@@ -306,51 +306,57 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
 
   tickAllPrices: (updates) =>
     set((state) => {
-      const newPrices = { ...state.prices };
-      const newPriceHistory = { ...state.priceHistory };
-      const newChangePct = { ...state.changePct };
+      // Shallow-copy only the top-level objects; per-city objects are copied
+      // only for cities that actually appear in `updates`.
+      const newPrices: Record<string, Record<string, number>> = { ...state.prices };
+      const newPriceHistory: Record<string, Record<string, number[]>> = { ...state.priceHistory };
+      const newChangePct: Record<string, Record<string, number>> = { ...state.changePct };
 
-      updates.forEach(({ cityId, earthDeltas, mycelium }) => {
-        const newCityPrices = { ...newPrices[cityId] };
-        const newCityChangePct = { ...newChangePct[cityId] };
-        const cityPriceHistory = { ...(state.priceHistory[cityId] || {}) };
+      for (let u = 0; u < updates.length; u++) {
+        const { cityId, earthDeltas, mycelium } = updates[u];
+        // Clone per-city records once per city (not per asset).
+        const cityPrices = { ...newPrices[cityId] };
+        const cityChangePct = { ...newChangePct[cityId] };
+        const cityHistory = { ...newPriceHistory[cityId] };
 
         const pH = mycelium?.soilPh ?? 6.5;
-        const pHVolatilityFactor = pH < 5.5 ? 2 : pH > 7.5 ? 0.5 : 1; // VOLATILITY OF PH of soil
+        const pHVolatilityFactor = pH < 5.5 ? 2 : pH > 7.5 ? 0.5 : 1;
 
-        Object.keys(newCityPrices).forEach((assetId) => {
+        const assetIds = Object.keys(cityPrices);
+        for (let a = 0; a < assetIds.length; a++) {
+          const assetId = assetIds[a];
           const delta = earthDeltas[assetId] || 0;
-          const oldPrice = newCityPrices[assetId];
+          const oldPrice = cityPrices[assetId];
           const basePrice = assetIndex[assetId]?.basePrice ?? oldPrice;
 
-          const logShift = delta * 0.006 * pHVolatilityFactor; // i think this is the actual factor
+          const logShift = delta * 0.006 * pHVolatilityFactor;
           const meanRevPull = -0.001 * (Math.log(oldPrice) - Math.log(basePrice));
           const logNoise = (Math.random() - 0.5) * 0.03 * pHVolatilityFactor;
 
           const newPrice = Math.max(0.01, Math.exp(Math.log(oldPrice) + logShift + meanRevPull + logNoise));
-          newCityPrices[assetId] = newPrice;
+          cityPrices[assetId] = newPrice;
 
+          // Ring-buffer style history: push into existing array, trim from front
+          // only when over window.  Avoids spread-copy every tick.
           const WINDOW = 40;
-          let history = cityPriceHistory[assetId];
+          let history = cityHistory[assetId];
           if (!history) {
-            history = [basePrice];
+            history = [basePrice, newPrice];
           } else {
-            history = [...history];
+            history = history.length >= WINDOW
+              ? history.slice(history.length - WINDOW + 1)  // trim once, keep last WINDOW-1
+              : history.slice();                             // cheap copy (< 40 elements)
+            history.push(newPrice);
           }
-          history.push(newPrice);
-          if (history.length > WINDOW) {
-            history.shift();
-          }
-          cityPriceHistory[assetId] = history;
+          cityHistory[assetId] = history;
 
-          const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;
-          newCityChangePct[assetId] = Number(rawChangePct.toFixed(2));
-        });
+          cityChangePct[assetId] = +((((newPrice - oldPrice) / oldPrice) * 100).toFixed(2));
+        }
 
-        newPrices[cityId] = newCityPrices;
-        newPriceHistory[cityId] = cityPriceHistory;
-        newChangePct[cityId] = newCityChangePct;
-      });
+        newPrices[cityId] = cityPrices;
+        newPriceHistory[cityId] = cityHistory;
+        newChangePct[cityId] = cityChangePct;
+      }
 
       return {
         prices: newPrices,
@@ -372,32 +378,34 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
   recordAllSignals: (updates) =>
     set((state) => {
       const WINDOW = 10;
-      const newSignalHistory = { ...state.signalHistory };
+      const newSignalHistory: Record<string, Partial<Record<SignalKey, number[]>>> = { ...state.signalHistory };
 
-      updates.forEach(({ cityId, signals }) => {
-        const cityHistory = { ...(state.signalHistory[cityId] || {}) };
+      for (let u = 0; u < updates.length; u++) {
+        const { cityId, signals } = updates[u];
+        const cityHistory: Partial<Record<SignalKey, number[]>> = { ...newSignalHistory[cityId] };
 
-        (Object.keys(signals) as SignalKey[]).forEach((key) => {
-          const value = signals[key];
-          if (value === undefined) {
-            return;
-          }
+        const keys = Object.keys(signals) as SignalKey[];
+        for (let k = 0; k < keys.length; k++) {
+          const key = keys[k];
+          const value = (signals as Record<string, number | undefined>)[key];
+          if (value === undefined) continue;
 
-          let history = cityHistory[key];
-          if (!history) {
-            history = [];
+          const prev = cityHistory[key];
+          let history: number[];
+          if (!prev) {
+            history = [value];
           } else {
-            history = [...history];
-          }
-          history.push(value);
-          if (history.length > WINDOW) {
-            history.shift();
+            // Slice only when we'd exceed the window; otherwise copy-then-push.
+            history = prev.length >= WINDOW
+              ? prev.slice(prev.length - WINDOW + 1)
+              : prev.slice();
+            history.push(value);
           }
           cityHistory[key] = history;
-        });
+        }
 
         newSignalHistory[cityId] = cityHistory;
-      });
+      }
 
       return {
         signalHistory: newSignalHistory
