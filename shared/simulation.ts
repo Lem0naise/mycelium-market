@@ -18,16 +18,16 @@ const STORM_REPULSION_BUFFER_DEG = 14;
 const STORM_PREDICTION_LOOKAHEAD_MS = 4_000;
 const STORM_TARGET_MIN_MS = 45_000;
 const STORM_TARGET_MAX_MS = 70_000;
-const STORM_LOITER_DURATION_MS = 10_000;
+const STORM_LOITER_DURATION_MS = 15_000;
 const STORM_TARGET_RAMP_MS = 1_000;
 const STORM_RECENT_HIT_WINDOW_MS = 90_000;
 const STORM_TARGET_NEAR_HIT_FACTOR = 0.58;
-const STORM_MAX_SPEED_DEG_PER_SEC = 6;
-const STORM_TARGET_FORCE = 0.08;
-const STORM_REPULSION_FORCE = 0.72;
+const STORM_MAX_SPEED_DEG_PER_SEC = 10;
+const STORM_TARGET_FORCE = 0.1;
+const STORM_REPULSION_FORCE = 0.62;
 const STORM_OPEN_WATER_FORCE = 0.18;
 const STORM_WANDER_FORCE = 0.07;
-const STORM_DAMPING = 0.92;
+const STORM_DAMPING = 0.96;
 const HOLDING_PATTERN_RADIUS_DEG = 1.25;
 const TRAIL_SAMPLE_STEP_MS = 1_000;
 const TRAIL_DURATION_MS = 10_000;
@@ -413,10 +413,6 @@ export function initializeStormSystems(seed: number) {
       [-58, -8],
       [8, 58],
       [8, 58],
-      [8, 58],
-      [-58, -8],
-      [-58, -8],
-      [-58, -8]
     ];
 
     const systems = hemisphereRanges.map((latRange, index) => {
@@ -424,7 +420,7 @@ export function initializeStormSystems(seed: number) {
       selectedOrigins.push(origin);
 
       const heading = randomBetween(random, 0, 360);
-      const speed = randomBetween(random, 1, 3);
+      const speed = randomBetween(random, 3, 6);
       const headingRad = toRadians(heading);
 
       return {
@@ -749,7 +745,7 @@ function getOrCreateStormFieldCache(storms: StormSystem[]) {
 
 function pruneStormFieldCache(cache: StormFieldCache, latestTimeMs: number) {
   const minimumTimeMs = Math.max(0, latestTimeMs - STORM_CACHE_RETAIN_MS);
-  
+
   let firstRetainedIndex = 0;
   for (let i = 0; i < cache.frames.length; i++) {
     if (cache.frames[i].timeMs >= minimumTimeMs) {
@@ -830,7 +826,7 @@ function getStormFieldFrameAt(storms: StormSystem[], elapsedMs: number) {
 
   const lowerTimeMs = Math.floor(safeElapsedMs / STORM_STEP_MS) * STORM_STEP_MS;
   const upperTimeMs = Math.ceil(safeElapsedMs / STORM_STEP_MS) * STORM_STEP_MS;
-  
+
   let lowerFrame = cache.frames[0];
   for (let i = cache.frames.length - 1; i >= 0; i--) {
     if (cache.frames[i].timeMs <= lowerTimeMs) {

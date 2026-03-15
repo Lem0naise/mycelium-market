@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchMarkets, speakOracle } from "./api";
 import { FeedPanel } from "./components/FeedPanel";
 import { MarketPanel } from "./components/MarketPanel";
+import { PortfolioChart } from "./components/PortfolioChart";
 import { MyceliumWidget, EnvironmentalEffectsPanel } from "./components/MyceliumWidget";
 import { assetProfiles, cities, cityIndex } from "../shared/data";
 import {
@@ -153,6 +154,7 @@ function App() {
   const prevSignalsRef = useRef<Record<string, EnvironmentalSignal>>({});
   const portfolioHistoryRef = useRef<number[]>([]);
   const [portfolioRollingPct, setPortfolioRollingPct] = useState<number | null>(null);
+  const [portfolioValueHistory, setPortfolioValueHistory] = useState<number[]>([]);
   const [liveSignals, setLiveSignals] = useState<EnvironmentalSignal[]>(() =>
     createFallbackSignals()
   );
@@ -529,6 +531,12 @@ function App() {
       const avg = changes.reduce((s, v) => s + v, 0) / changes.length;
       setPortfolioRollingPct(Number(avg.toFixed(2)));
     }
+
+    // Append to full history for the portfolio chart (cap at 300 ticks ≈ 5 min)
+    setPortfolioValueHistory((prev) => {
+      const next = prev.length >= 300 ? prev.slice(1) : prev;
+      return [...next, totalVal];
+    });
   }, [gameTick]);
 
 
@@ -741,7 +749,7 @@ function App() {
     "Sunday"
   ];
 
-  const fictionalYear = START_YEAR + Math.floor(gameTick / DAYS_PER_YEAR);
+  const fictionalYear = 1 + Math.floor(gameTick / DAYS_PER_YEAR);
   const dayOfYear = gameTick % DAYS_PER_YEAR;
   const fictionalWeek = Math.floor(dayOfYear / DAYS_PER_WEEK) + 1;
   const fictionalDayName = DAY_NAMES[dayOfYear % DAYS_PER_WEEK];
@@ -888,7 +896,10 @@ function App() {
 
       <main className="dashboard-grid">
         <motion.div className="left-column" {...sideMotionProps}>
-          <FeedPanel feed={feedHistory} oracleHistory={oracleHistory} />
+          <div className="left-column-stack">
+            <PortfolioChart history={portfolioValueHistory} />
+            <FeedPanel feed={feedHistory} oracleHistory={oracleHistory} />
+          </div>
         </motion.div>
 
         <motion.section className="globe-column" {...globeMotionProps}>
