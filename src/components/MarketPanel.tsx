@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Filler } from "chart.js";
 import { assetIndex, cityIndex } from "../../shared/data";
 import { useTradingStore } from "../store/tradingStore";
 import { myceliumStatus } from "./MyceliumWidget";
@@ -12,6 +13,66 @@ import type {
   TradeFailureReason,
   TradeResult
 } from "../../shared/types";
+
+Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Filler);
+
+function PriceSparkline({ data, cityName }: { data: number[]; cityName: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const chartRef = useRef<Chart | null>(null);
+  const isUpTrend = data[data.length - 1] >= data[0];
+  const color = isUpTrend ? "#4caf50" : "#ff4d4d";
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    if (chartRef.current) chartRef.current.destroy();
+
+    const ctx = canvasRef.current.getContext("2d");
+    if (!ctx) return;
+
+    const grad = ctx.createLinearGradient(0, 0, 0, 40);
+    grad.addColorStop(0, color + "44");
+    grad.addColorStop(1, color + "00");
+
+    chartRef.current = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: data.map((_, i) => i),
+        datasets: [{
+          data,
+          borderColor: color,
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: true,
+          backgroundColor: grad,
+          tension: 0.3,
+        }],
+      },
+      options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: {
+          x: { display: false },
+          y: { display: false },
+        },
+      },
+    });
+
+    return () => { chartRef.current?.destroy(); chartRef.current = null; };
+  }, [data, color]);
+
+  return (
+    <div style={{ marginBottom: "16px", padding: "12px 14px", background: "var(--panel-bg)", borderRadius: "8px", border: "1px solid var(--border)" }}>
+      <span className="eyebrow" style={{ display: "block", marginBottom: "8px" }}>
+        Past Prices ({cityName})
+      </span>
+      <div style={{ height: "40px", position: "relative" }}>
+        <canvas ref={canvasRef} />
+      </div>
+    </div>
+  );
+}
 
 type MarketPanelProps = {
   tickers: MarketTicker[];
@@ -217,45 +278,11 @@ export function MarketPanel({
         {(() => {
           const historyData = priceHistory[currentCityId]?.[selectedAssetId] || [];
           if (historyData.length < 2) return null;
-
-          const graphHeight = 40;
-          const minPrice = Math.min(...historyData);
-          const maxPrice = Math.max(...historyData);
-          const range = maxPrice - minPrice || 1;
-
-          const points = historyData.map((p, i) => {
-            const x = (i / (historyData.length - 1)) * 100;
-            const y = graphHeight - ((p - minPrice) / range) * graphHeight;
-            return `${x},${y}`;
-          }).join(' ');
-
-          const isUpTrend = historyData[historyData.length - 1] >= historyData[0];
-          const strokeColor = isUpTrend ? "#4caf50" : "#ff4d4d";
-
           return (
-            <div style={{ marginBottom: "16px", padding: "12px 14px", background: "var(--panel-bg)", borderRadius: "8px", border: "1px solid var(--border)" }}>
-              <span className="eyebrow" style={{ display: "block", marginBottom: "8px" }}>
-                Past Prices ({currentCity?.name ?? currentCityId})
-              </span>
-              <svg
-                viewBox={`0 -5 100 ${graphHeight + 10}`}
-                preserveAspectRatio="none"
-                style={{
-                  width: "100%",
-                  height: `${graphHeight}px`,
-                  overflow: "visible"
-                }}
-              >
-                <polyline
-                  fill="none"
-                  stroke={strokeColor}
-                  strokeWidth="2"
-                  points={points}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
+            <PriceSparkline
+              data={historyData}
+              cityName={currentCity?.name ?? currentCityId}
+            />
           );
         })()}
 

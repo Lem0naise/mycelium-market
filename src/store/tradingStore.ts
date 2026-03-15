@@ -75,9 +75,9 @@ function getMyceliumFailure(
 async function applyPreTradeEffects(
   mycelium: MyceliumSignal
 ): Promise<{ blocked: false } | { blocked: true; reason: "humidity-reroute" }> {
-  // Humidity > 80%: impose a 2-second execution delay
+  // Humidity > 80%: impose a 0.5-second execution delay
   if (mycelium.humidity > 80) {
-    await new Promise<void>((res) => setTimeout(res, 2000));
+    await new Promise<void>((res) => setTimeout(res, 500));
   }
 
   // Humidity < 20%: 60% chance the signal gets scrambled → reroute

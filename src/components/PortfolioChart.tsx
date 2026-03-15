@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useEffect } from "react";
+import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Filler } from "chart.js";
 import { renderCurrencyText } from "./currency";
 
+Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Filler);
+
 const INITIAL_CASH = 100_000;
-const W = 100;
 const H = 56;
-const PAD = 2;
 
 type Props = { history: number[] };
 
@@ -16,36 +17,62 @@ function fmtGBP(v: number): string {
 }
 
 export function PortfolioChart({ history }: Props) {
-  const data = useMemo(() => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const chartRef = useRef<Chart | null>(null);
+
+  const meta = useMemo(() => {
     if (history.length < 2) return null;
-
-    const minV = Math.min(...history);
-    const maxV = Math.max(...history);
-    const range = maxV - minV || 1;
-
-    const pts = history.map((v, i) => {
-      const x = PAD + (i / (history.length - 1)) * (W - PAD * 2);
-      const y = H - PAD - ((v - minV) / range) * (H - PAD * 2);
-      return { x, y, v };
-    });
-
-    const linePoints = pts.map((p) => `${p.x},${p.y}`).join(" ");
-    const areaPath = [
-      `M${pts[0].x},${H - PAD}`,
-      ...pts.map((p) => `L${p.x},${p.y}`),
-      `L${pts[pts.length - 1].x},${H - PAD}`,
-      "Z",
-    ].join(" ");
-
     const current = history[history.length - 1];
     const start = history[0];
     const pct = ((current - start) / start) * 100;
     const vsInitial = current >= INITIAL_CASH;
-
-    return { linePoints, areaPath, current, start, pct, vsInitial };
+    return { current, start, pct, vsInitial };
   }, [history]);
 
-  if (!data) {
+  const color = meta?.vsInitial ? "#3ddc84" : "#ff5c5c";
+  const gradRgb = meta?.vsInitial ? "61,220,132" : "255,92,92";
+
+  useEffect(() => {
+    if (!canvasRef.current || !meta) return;
+    if (chartRef.current) chartRef.current.destroy();
+
+    const ctx = canvasRef.current.getContext("2d");
+    if (!ctx) return;
+
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, `rgba(${gradRgb},0.22)`);
+    grad.addColorStop(1, `rgba(${gradRgb},0.01)`);
+
+    chartRef.current = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: history.map((_, i) => i),
+        datasets: [{
+          data: history,
+          borderColor: color,
+          borderWidth: 1.8,
+          pointRadius: 0,
+          fill: true,
+          backgroundColor: grad,
+          tension: 0.3,
+        }],
+      },
+      options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: {
+          x: { display: false },
+          y: { display: false },
+        },
+      },
+    });
+
+    return () => { chartRef.current?.destroy(); chartRef.current = null; };
+  }, [history, color, gradRgb, meta]);
+
+  if (!meta) {
     return (
       <div className="portfolio-chart-card">
         <span className="eyebrow">Portfolio History</span>
@@ -55,10 +82,6 @@ export function PortfolioChart({ history }: Props) {
       </div>
     );
   }
-
-  const color = data.vsInitial ? "#3ddc84" : "#ff5c5c";
-  const gradId = data.vsInitial ? "portGradGreen" : "portGradRed";
-  const gradRgb = data.vsInitial ? "61,220,132" : "255,92,92";
 
   return (
     <div className="portfolio-chart-card">
@@ -78,44 +101,26 @@ export function PortfolioChart({ history }: Props) {
             fontWeight: "bold",
             padding: "2px 7px",
             borderRadius: "4px",
-            background: data.vsInitial
+            background: meta.vsInitial
               ? "rgba(61,220,132,0.13)"
               : "rgba(255,92,92,0.13)",
             color,
             border: `1px solid ${
-              data.vsInitial
+              meta.vsInitial
                 ? "rgba(61,220,132,0.3)"
                 : "rgba(255,92,92,0.3)"
             }`,
           }}
         >
-          {data.pct >= 0 ? "+" : ""}
-          {data.pct.toFixed(2)}%
+          {meta.pct >= 0 ? "+" : ""}
+          {meta.pct.toFixed(2)}%
         </span>
       </div>
 
-      {/* SVG chart */}
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        preserveAspectRatio="none"
-        style={{ width: "100%", height: `${H}px`, display: "block", overflow: "visible" }}
-      >
-        <defs>
-          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={`rgb(${gradRgb})`} stopOpacity="0.22" />
-            <stop offset="100%" stopColor={`rgb(${gradRgb})`} stopOpacity="0.01" />
-          </linearGradient>
-        </defs>
-        <path d={data.areaPath} fill={`url(#${gradId})`} />
-        <polyline
-          fill="none"
-          stroke={color}
-          strokeWidth="1.8"
-          points={data.linePoints}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+      {/* Chart.js canvas */}
+      <div style={{ height: `${H}px`, position: "relative" }}>
+        <canvas ref={canvasRef} />
+      </div>
 
       {/* Min / current labels */}
       <div
@@ -129,8 +134,8 @@ export function PortfolioChart({ history }: Props) {
           letterSpacing: "0.02em",
         }}
       >
-        <span>{renderCurrencyText(fmtGBP(data.start))}</span>
-        <span style={{ color }}>{renderCurrencyText(fmtGBP(data.current))}</span>
+        <span>{renderCurrencyText(fmtGBP(meta.start))}</span>
+        <span style={{ color }}>{renderCurrencyText(fmtGBP(meta.current))}</span>
       </div>
     </div>
   );

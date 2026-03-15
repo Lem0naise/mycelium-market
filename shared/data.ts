@@ -455,50 +455,8 @@ export const assetProfiles: AssetProfile[] = [
       { kind: "surge", signal: "rain", threshold: 10, effect: 2 }
     ],
   },
-  {
-    id: "JMW",
-    label: "Joshcoin",
-    marketType: "stock",
-    symbol: "JMW",
-    basePrice: 190,
-    accentColor: "#e6e6e6",
-    homeRegions: ["North America", "Global"],
-    // Primary driver: temperature (falls in hot conditions — cold-adapted)
-    ecologicalWeights: {
-      humidity: 0,
-      rain: 0,
-      temperature: -1.0,
-      wind: 0,
-      airQuality: 0,
-      soilMoisture: 0,
-      soilPh: 0
-    },
-    triggerRules: [
-      { kind: "drop", signal: "temperature", threshold: 5, effect: -3 }
-    ],
-  },
-  {
-    id: "IZN",
-    label: "Indigosen",
-    marketType: "stock",
-    symbol: "IZN",
-    basePrice: 330,
-    accentColor: "#4d94ff",
-    homeRegions: ["North America"],
-    // Primary driver: air quality (rises with cleaner air, weaker than KAI)
-    ecologicalWeights: {
-      humidity: 0,
-      rain: 0,
-      temperature: 0,
-      wind: 0,
-      airQuality: -1,
-      soilMoisture: 0,
-      soilPh: 0
-    },
-    triggerRules: [
-      { kind: "surge", signal: "airQuality", threshold: 50, effect: 2 }
-    ],
-  }
+
+
 ];
 
 export const defaultAssetId = "KAICOIN";
