@@ -1,5 +1,6 @@
 import { cityIndex } from "../../shared/data";
 import type { OracleNotification } from "../../shared/types";
+import { renderCurrencyText } from "./currency";
 
 type FeedPanelProps = {
   feed: OracleNotification[];
@@ -50,14 +51,14 @@ export function FeedPanel({ feed }: FeedPanelProps) {
                 </span>
               </div>
               <h3>{item.title}</h3>
-              <p>{item.body}</p>
+              <p>{renderCurrencyText(item.body)}</p>
               <div className="feed-meta">
                 <span>{item.assetIds.length > 0 ? item.assetIds.join(" • ") : "portfolio-wide"}</span>
                 {item.affectedPortfolioShare > 0 ? (
                   <span>{item.affectedPortfolioShare.toFixed(1)}% exposure</span>
                 ) : null}
                 {item.affectedValue > 0 ? (
-                  <span>{formatGBPCompact(item.affectedValue)}</span>
+                  <span>{renderCurrencyText(formatGBPCompact(item.affectedValue))}</span>
                 ) : null}
                 {item.spokenAt ? <span className="status-pill accent">spoken</span> : null}
               </div>

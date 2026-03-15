@@ -110,6 +110,10 @@ const FLIGHT_ARC_ALTITUDE = 0.22;
 const FLIGHT_BANK_LIMIT_RAD = Math.PI / 7.5;
 const FLIGHT_BANK_SCALE = 1.6;
 const FLIGHT_MODEL_SCALE = 0.078;
+const CLOUD_LAYER_ALTITUDE = 0.024;
+const CLOUD_LAYER_ROTATION_SPEED = 0.012;
+const CLOUD_LAYER_COUNTER_ROTATION_SPEED = 0.006;
+const CLOUD_TEXTURE_SIZE = 1024;
 const globeTopology = countriesTopology as Record<string, unknown> & {
   objects: {
     countries: unknown;
@@ -230,6 +234,70 @@ function buildStormOutlineGeometry(radius: number) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   return geometry;
+}
+
+function createCloudTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = CLOUD_TEXTURE_SIZE;
+  canvas.height = CLOUD_TEXTURE_SIZE;
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#000000";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  const cloudBelts = [
+    { y: 0.18, spread: 0.09, count: 18, radius: [100, 180] as const, alpha: 0.16 },
+    { y: 0.34, spread: 0.11, count: 22, radius: [90, 170] as const, alpha: 0.18 },
+    { y: 0.52, spread: 0.12, count: 24, radius: [85, 165] as const, alpha: 0.19 },
+    { y: 0.7, spread: 0.1, count: 20, radius: [95, 175] as const, alpha: 0.16 }
+  ];
+
+  cloudBelts.forEach((belt, beltIndex) => {
+    for (let index = 0; index < belt.count; index += 1) {
+      const x = ((index + 0.5) / belt.count) * canvas.width + Math.sin(index * 4.2 + beltIndex) * 26;
+      const y =
+        belt.y * canvas.height +
+        Math.sin(index * 2.9 + beltIndex * 1.4) * belt.spread * canvas.height;
+      const radius =
+        belt.radius[0] +
+        ((Math.sin(index * 3.7 + beltIndex * 5.1) + 1) / 2) * (belt.radius[1] - belt.radius[0]);
+      const gradient = context.createRadialGradient(x, y, radius * 0.14, x, y, radius);
+      gradient.addColorStop(0, `rgba(255,255,255,${belt.alpha})`);
+      gradient.addColorStop(0.52, `rgba(255,255,255,${belt.alpha * 0.72})`);
+      gradient.addColorStop(1, "rgba(255,255,255,0)");
+      context.fillStyle = gradient;
+      context.beginPath();
+      context.arc(x, y, radius, 0, Math.PI * 2);
+      context.fill();
+    }
+  });
+
+  for (let index = 0; index < 120; index += 1) {
+    const x = (index * 197.3) % canvas.width;
+    const y = (index * 127.7) % canvas.height;
+    const radius = 26 + ((index * 17.1) % 38);
+    const gradient = context.createRadialGradient(x, y, radius * 0.1, x, y, radius);
+    gradient.addColorStop(0, "rgba(255,255,255,0.07)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.arc(x, y, radius, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1.15, 1);
+  texture.anisotropy = 4;
+  texture.needsUpdate = true;
+  return texture;
 }
 
 function buildCityPointData(
@@ -760,6 +828,72 @@ function StormFootprints({
   );
 }
 
+function CloudLayer() {
+  const primaryRef = useRef<THREE.Mesh | null>(null);
+  const secondaryRef = useRef<THREE.Mesh | null>(null);
+  const texture = useMemo(() => createCloudTexture(), []);
+  const sharedAssets = useMemo(() => {
+    const geometry = new THREE.SphereGeometry(baseRadius * (1 + CLOUD_LAYER_ALTITUDE), 72, 72);
+    const material = new THREE.MeshPhongMaterial({
+      color: "#f6fbff",
+      emissive: new THREE.Color("#d7eef8"),
+      emissiveIntensity: 0.08,
+      transparent: true,
+      opacity: 0.2,
+      alphaMap: texture,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.NormalBlending
+    });
+    const secondaryMaterial = material.clone();
+    secondaryMaterial.opacity = 0.09;
+
+    return {
+      geometry,
+      material,
+      secondaryMaterial
+    };
+  }, [texture]);
+
+  useFrame((state) => {
+    const time = state.clock.elapsedTime;
+    if (primaryRef.current) {
+      primaryRef.current.rotation.y = time * CLOUD_LAYER_ROTATION_SPEED;
+      primaryRef.current.rotation.z = Math.sin(time * 0.12) * 0.02;
+    }
+
+    if (secondaryRef.current) {
+      secondaryRef.current.rotation.y = Math.PI * 0.2 - time * CLOUD_LAYER_COUNTER_ROTATION_SPEED;
+      secondaryRef.current.rotation.z = -Math.sin(time * 0.09) * 0.016;
+    }
+  });
+
+  useEffect(() => {
+    return () => {
+      texture.dispose();
+      sharedAssets.geometry.dispose();
+      sharedAssets.material.dispose();
+      sharedAssets.secondaryMaterial.dispose();
+    };
+  }, [sharedAssets, texture]);
+
+  return (
+    <group renderOrder={2}>
+      <mesh
+        ref={primaryRef}
+        geometry={sharedAssets.geometry}
+        material={sharedAssets.material}
+      />
+      <mesh
+        ref={secondaryRef}
+        geometry={sharedAssets.geometry}
+        material={sharedAssets.secondaryMaterial}
+        scale={1.003}
+      />
+    </group>
+  );
+}
+
 function FlightPlane({ flight }: { flight: FlightState | null }) {
   const planeRef = useRef<THREE.Group | null>(null);
   const lastPoseRef = useRef<FlightPose | null>(null);
@@ -1041,6 +1175,7 @@ function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeRenderStage })
   return (
     <>
       <primitive object={globe} />
+      <CloudLayer />
       <CityNameLabels
         globe={globe}
         focusedCityId={props.focusedCityId}

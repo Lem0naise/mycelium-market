@@ -2,6 +2,7 @@ import { useState } from "react";
 import { assetIndex, cityIndex } from "../../shared/data";
 import { useTradingStore } from "../store/tradingStore";
 import { myceliumStatus } from "./MyceliumWidget";
+import { renderCurrencyText } from "./currency";
 import type {
   EnvironmentalSignal,
   FlightState,
@@ -194,7 +195,7 @@ export function MarketPanel({
                   </span>
                 ) : null}
               </span>
-              <strong>{formatGBP(ticker.price)}</strong>
+              <strong>{renderCurrencyText(formatGBP(ticker.price))}</strong>
               <small className={ticker.changePct >= 0 ? "up textRight" : "down textRight"}>
                 {ticker.changePct >= 0 ? "+" : ""}
                 {ticker.changePct}%
@@ -338,7 +339,7 @@ export function MarketPanel({
             }}>
               {isSaturated
                 ? "DEEP LIQUIDITY — buying at 10× capacity"
-                : `WILTING — max trade: ${formatGBP(maxSpendWilting)} (10% balance)`}
+                : renderCurrencyText(`WILTING — max trade: ${formatGBP(maxSpendWilting)} (10% balance)`)}
             </div>
           ) : null}
 
@@ -393,12 +394,12 @@ export function MarketPanel({
         ) : null}
         {tradeError ? (
           <p style={{ color: "#ff8a8a", fontSize: "0.85rem", marginBottom: "8px" }}>
-            {tradeError}
+            {renderCurrencyText(tradeError)}
           </p>
         ) : null}
         {redirectInfo ? (
           <p style={{ color: "#f59e0b", fontSize: "0.8rem", marginBottom: "16px" }}>
-            Redirected buy: 1× {redirectInfo.assetId} @ {formatGBP(redirectInfo.executedPrice)}
+            {renderCurrencyText(`Redirected buy: 1× ${redirectInfo.assetId} @ ${formatGBP(redirectInfo.executedPrice)}`)}
           </p>
         ) : null}
 

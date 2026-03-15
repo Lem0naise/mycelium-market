@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { renderCurrencyText } from "./currency";
 
 const INITIAL_CASH = 100_000;
 const W = 100;
@@ -128,8 +129,8 @@ export function PortfolioChart({ history }: Props) {
           letterSpacing: "0.02em",
         }}
       >
-        <span>{fmtGBP(data.start)}</span>
-        <span style={{ color }}>{fmtGBP(data.current)}</span>
+        <span>{renderCurrencyText(fmtGBP(data.start))}</span>
+        <span style={{ color }}>{renderCurrencyText(fmtGBP(data.current))}</span>
       </div>
     </div>
   );

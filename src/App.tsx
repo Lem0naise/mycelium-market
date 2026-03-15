@@ -6,6 +6,7 @@ import { FeedPanel } from "./components/FeedPanel";
 import { MarketPanel } from "./components/MarketPanel";
 import { PortfolioChart } from "./components/PortfolioChart";
 import { MyceliumWidget, EnvironmentalEffectsPanel } from "./components/MyceliumWidget";
+import { renderCurrencyText } from "./components/currency";
 import { assetProfiles, cities, cityIndex } from "../shared/data";
 import {
   createInitialOracleWatchState,
@@ -1034,7 +1035,7 @@ function App() {
                       color: "var(--accent)",
                       marginBottom: "12px",
                     }}>
-                      {formatGBPOverlay(totalValue)}
+                      {renderCurrencyText(formatGBPOverlay(totalValue))}
                     </div>
 
                     {/* Cash row */}
@@ -1046,7 +1047,7 @@ function App() {
                       marginBottom: portfolioItems.length > 0 ? "8px" : 0,
                     }}>
                       <span>Cash</span>
-                      <span>{formatGBPOverlay(cash)}</span>
+                      <span>{renderCurrencyText(formatGBPOverlay(cash))}</span>
                     </div>
 
                     {/* Holdings list */}
@@ -1071,12 +1072,12 @@ function App() {
                                   {assetLabel} <span style={{ fontWeight: "normal", color: "var(--text-muted)" }}>×{item.qty}</span>
                                 </span>
                                 <strong style={{ fontSize: "1.3rem", color: "var(--accent)" }}>
-                                  {formatGBPOverlay(positionValue)}
+                                  {renderCurrencyText(formatGBPOverlay(positionValue))}
                                 </strong>
                               </div>
                               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
                                 <span>{cityName}</span>
-                                <span>{formatGBPOverlay(unitPrice)} / unit</span>
+                                <span>{renderCurrencyText(`${formatGBPOverlay(unitPrice)} / unit`)}</span>
                               </div>
                             </li>
                           );
