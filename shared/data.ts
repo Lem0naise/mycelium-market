@@ -391,7 +391,7 @@ export const assetProfiles: AssetProfile[] = [
   },
   {
     id: "WTFII",
-    label: "WTFisIndie",
+    label: "IndieWhatTheFlip",
     marketType: "stock",
     symbol: "WTFII",
     basePrice: 300,
@@ -413,7 +413,7 @@ export const assetProfiles: AssetProfile[] = [
   },
   {
     id: "EMB",
-    label: "EmmaBrown",
+    label: "Emberum",
     marketType: "stock",
     symbol: "EMB",
     basePrice: 250,
@@ -435,7 +435,7 @@ export const assetProfiles: AssetProfile[] = [
   },
   {
     id: "IWG",
-    label: "IndoStock",
+    label: "Indstock",
     marketType: "stock",
     symbol: "IWG",
     basePrice: 210,
@@ -457,7 +457,7 @@ export const assetProfiles: AssetProfile[] = [
   },
   {
     id: "JMW",
-    label: "JoshStock",
+    label: "Joshcoin",
     marketType: "stock",
     symbol: "JMW",
     basePrice: 190,
@@ -479,7 +479,7 @@ export const assetProfiles: AssetProfile[] = [
   },
   {
     id: "IZN",
-    label: "IndyStock",
+    label: "Indigosen",
     marketType: "stock",
     symbol: "IZN",
     basePrice: 330,
