@@ -72,7 +72,7 @@ describe("terra arbitrage api", () => {
     expect(signals.signals[0].cityId).toBe("abidjan");
     expect(speech.audioUrl).toContain("data:audio");
     expect(speech.severity).toBe("alert");
-    expect(Date.parse(speech.cooldownUntil) - Date.now()).toBeGreaterThanOrEqual(59_000);
+    expect(Date.parse(speech.cooldownUntil) - Date.now()).toBeGreaterThanOrEqual(11_000);
   });
 
   it("falls back to transcript-only oracle speech when audio generation is unavailable", async () => {
@@ -90,6 +90,6 @@ describe("terra arbitrage api", () => {
     expect(speech.text).toBe("Tokyo just turned against your holding.");
     expect(speech.audioUrl).toBeNull();
     expect(speech.severity).toBe("alert");
-    expect(Date.parse(speech.cooldownUntil) - Date.now()).toBeGreaterThanOrEqual(59_000);
+    expect(Date.parse(speech.cooldownUntil) - Date.now()).toBeGreaterThanOrEqual(11_000);
   });
 });

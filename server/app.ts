@@ -159,8 +159,8 @@ export async function resolveOracleSpeech(
       audioUrl = null;
     }
 
-    // 3. Extend the lock to one minute so the oracle speaks sparingly.
-    globalAudioCooldown = Date.now() + 60_000;
+    // 3. Extend the lock so the oracle finishes a single message before the next one starts.
+    globalAudioCooldown = Date.now() + 20_000;
 
     return {
       text,

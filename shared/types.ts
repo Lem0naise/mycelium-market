@@ -86,6 +86,7 @@ export type OracleSpeech = {
 export type OracleNotificationCategory =
   | "storm"
   | "driver"
+  | "opportunity"
   | "access"
   | "flight"
   | "recovery";
@@ -107,6 +108,7 @@ export type OracleNotification = {
   holdingsCount: number;
   timestamp: string;
   state: OracleNotificationState;
+  spokenAt?: string | null;
 };
 
 export type StormSystem = {

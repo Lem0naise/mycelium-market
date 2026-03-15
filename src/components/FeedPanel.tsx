@@ -1,9 +1,8 @@
 import { cityIndex } from "../../shared/data";
-import type { OracleNotification, OracleSpeech } from "../../shared/types";
+import type { OracleNotification } from "../../shared/types";
 
 type FeedPanelProps = {
   feed: OracleNotification[];
-  oracleHistory: OracleSpeech[];
 };
 
 const formatGBPCompact = (value: number) =>
@@ -14,7 +13,16 @@ const formatGBPCompact = (value: number) =>
     maximumFractionDigits: value >= 1000 ? 1 : 0
   }).format(value);
 
-export function FeedPanel({ feed, oracleHistory }: FeedPanelProps) {
+const categoryLabel: Record<OracleNotification["category"], string> = {
+  storm: "Storm",
+  driver: "Driver",
+  opportunity: "Buy",
+  access: "Route",
+  flight: "Flight",
+  recovery: "Clear"
+};
+
+export function FeedPanel({ feed }: FeedPanelProps) {
   return (
     <aside className="panel feed-panel">
       <div className="panel-topline">
@@ -23,13 +31,18 @@ export function FeedPanel({ feed, oracleHistory }: FeedPanelProps) {
       <h2>Oracle Feed</h2>
       <div className="feed-list">
         {feed.length === 0 ? (
-          <p className="muted">The oracle is still building a useful picture of your portfolio.</p>
+          <p className="muted">Waiting for the next useful move.</p>
         ) : (
           feed.map((item) => (
-            <article key={item.id} className={`feed-card severity-${item.severity}`}>
+            <article
+              key={item.id}
+              className={`feed-card severity-${item.severity}${item.spokenAt ? " is-spoken" : ""}`}
+            >
               <div className="feed-meta">
-                <span className={`feed-kind kind-${item.category}`}>{item.category}</span>
-                <span>{item.state === "resolved" ? "resolved" : "live"}</span>
+                <span className={`feed-kind kind-${item.category}`}>{categoryLabel[item.category]}</span>
+                <span className={`status-pill ${item.state === "resolved" ? "" : "live"}`}>
+                  {item.state === "resolved" ? "resolved" : "live"}
+                </span>
                 <span>
                   {item.cityIds.length > 0
                     ? item.cityIds.map((cityId) => cityIndex[cityId]?.name ?? cityId).join(" • ")
@@ -46,24 +59,9 @@ export function FeedPanel({ feed, oracleHistory }: FeedPanelProps) {
                 {item.affectedValue > 0 ? (
                   <span>{formatGBPCompact(item.affectedValue)}</span>
                 ) : null}
+                {item.spokenAt ? <span className="status-pill accent">spoken</span> : null}
               </div>
             </article>
-          ))
-        )}
-      </div>
-      <div className="oracle-transcript">
-        <div className="panel-topline">
-          <span className="eyebrow">Voice</span>
-          <span className="status-pill">ARCHIVE</span>
-        </div>
-        {oracleHistory.length === 0 ? (
-          <p className="muted">The oracle is quiet until the market becomes dramatic.</p>
-        ) : (
-          oracleHistory.map((speech, index) => (
-            <div key={`${speech.cooldownUntil}-${index}`} className="transcript-entry">
-              <span>{speech.severity}</span>
-              <p>{speech.text}</p>
-            </div>
           ))
         )}
       </div>

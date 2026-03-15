@@ -44,7 +44,7 @@ import {
   globeLoadStageOrder
 } from "./components/globeBoot";
 
-const ORACLE_SPEECH_COOLDOWN_MS = 60_000;
+const ORACLE_SPEECH_COOLDOWN_MS = 12_000;
 /** Interval (ms) between storm snapshot recomputations. Storms are physics-heavy; 300ms is visually smooth. */
 const STORM_TICK_INTERVAL_MS = 300;
 /** Minimum interval (ms) between flight state React commits (rAF runs faster, but we throttle state pushes). */
@@ -167,7 +167,6 @@ function App() {
     currentCityId,
     audioEnabled,
     scenario,
-    oracleHistory,
     feedHistory,
     stormSeed,
     flight,
@@ -176,7 +175,7 @@ function App() {
     setCurrentCity,
     setFlight,
     setFeed,
-    pushOracleSpeech
+    markFeedSpoken
   } = useAppStore();
 
   const { cash, holdings, prices, changePct, tickAllPrices, recordAllSignals } = useTradingStore();
@@ -234,8 +233,8 @@ function App() {
           }
 
           lastSpokenNotificationIdRef.current = notification.id;
+          markFeedSpoken(notification.id, new Date().toISOString());
           pulseOracleFlash();
-          pushOracleSpeech(response);
           if (response.audioUrl) {
             await playBase64Audio(response.audioUrl);
           }
@@ -677,7 +676,7 @@ function App() {
       }
 
       window.setTimeout(runOracleEvaluation, 0);
-    }, 20_000);
+    }, 12_000);
 
     return () => {
       window.clearInterval(intervalId);
@@ -903,7 +902,7 @@ function App() {
 
       <main className="dashboard-grid">
         <motion.div className="left-column" {...sideMotionProps}>
-          <FeedPanel feed={feedHistory} oracleHistory={oracleHistory} />
+          <FeedPanel feed={feedHistory} />
         </motion.div>
 
         <motion.section className="globe-column" {...globeMotionProps}>

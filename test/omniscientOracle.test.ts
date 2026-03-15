@@ -105,6 +105,7 @@ describe("omniscient oracle", () => {
     expect(cleared.notifications).toHaveLength(1);
     expect(cleared.notifications[0].category).toBe("recovery");
     expect(cleared.notifications[0].state).toBe("resolved");
+    expect(cleared.speakable?.eventKey).toBe("storm-abidjan");
   });
 
   it("makes alert-level storm exposure speakable when a remote holding is materially exposed", () => {
@@ -224,8 +225,49 @@ describe("omniscient oracle", () => {
 
     expect(result.notifications).toHaveLength(1);
     expect(result.notifications[0].eventKey).toBe("driver-abidjan-KAICOIN");
-    expect(result.notifications[0].title).toMatch(/found support/i);
+    expect(result.notifications[0].title).toMatch(/strengthening/i);
     expect(result.notifications[0].severity).toBe("alert");
+    expect(result.speakable?.eventKey).toBe("driver-abidjan-KAICOIN");
+  });
+
+  it("keeps speaking enabled when a held position materially reprices back toward calm", () => {
+    const holdings = buildHoldings();
+    holdings.abidjan.KAICOIN = 1;
+    const prices = buildPriceBook();
+    const tickers = createFallbackTickers();
+    const extremeSignals = patchSignals("abidjan", { airQuality: 120 });
+    const calmerSignals = patchSignals("abidjan", { airQuality: 65 }, extremeSignals);
+
+    const seeded = evaluateOracleNotifications({
+      signals: extremeSignals,
+      holdings,
+      prices,
+      tickers,
+      cash: 0,
+      blockedCityIds: [],
+      currentCityId: "southampton",
+      focusedCityId: "abidjan",
+      flight: null,
+      previousState: createInitialOracleWatchState(),
+      now: "2026-03-14T10:00:00.000Z"
+    });
+
+    const result = evaluateOracleNotifications({
+      signals: calmerSignals,
+      holdings,
+      prices,
+      tickers,
+      cash: 0,
+      blockedCityIds: [],
+      currentCityId: "southampton",
+      focusedCityId: "abidjan",
+      flight: null,
+      previousState: seeded.nextState,
+      now: "2026-03-14T10:00:20.000Z"
+    });
+
+    expect(result.notifications).toHaveLength(1);
+    expect(result.notifications[0].speakText).toBeTruthy();
     expect(result.speakable?.eventKey).toBe("driver-abidjan-KAICOIN");
   });
 
@@ -266,6 +308,48 @@ describe("omniscient oracle", () => {
     });
 
     expect(result.notifications).toHaveLength(0);
+  });
+
+  it("surfaces remote buy windows for assets not yet held", () => {
+    const holdings = buildHoldings();
+    const prices = buildPriceBook();
+    const tickers = createFallbackTickers();
+    const baseSignals = patchSignals("tokyo", { wind: 14 });
+    const boostedSignals = patchSignals("tokyo", { wind: 34 }, baseSignals);
+
+    const seeded = evaluateOracleNotifications({
+      signals: baseSignals,
+      holdings,
+      prices,
+      tickers,
+      cash: 50_000,
+      blockedCityIds: [],
+      currentCityId: "southampton",
+      focusedCityId: "tokyo",
+      flight: null,
+      previousState: createInitialOracleWatchState(),
+      now: "2026-03-14T10:00:00.000Z"
+    });
+
+    const result = evaluateOracleNotifications({
+      signals: boostedSignals,
+      holdings,
+      prices,
+      tickers,
+      cash: 50_000,
+      blockedCityIds: [],
+      currentCityId: "southampton",
+      focusedCityId: "tokyo",
+      flight: null,
+      previousState: seeded.nextState,
+      now: "2026-03-14T10:00:12.000Z"
+    });
+
+    expect(result.notifications.some((notification) => notification.category === "opportunity")).toBe(
+      true
+    );
+    expect(result.notifications.some((notification) => notification.title.match(/buy/i))).toBe(true);
+    expect(result.speakable?.category).toBe("opportunity");
   });
 
   it("stays quiet when mycelium access changes in the current city", () => {

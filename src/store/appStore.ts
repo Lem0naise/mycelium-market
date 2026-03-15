@@ -27,6 +27,7 @@ type AppState = {
   setScenarioValue: (key: keyof ScenarioControls, value: number) => void;
   resetScenario: () => void;
   pushOracleSpeech: (speech: OracleSpeech) => void;
+  markFeedSpoken: (notificationId: string, spokenAt: string) => void;
   setFeed: (feed: OracleNotification[]) => void;
 };
 
@@ -66,6 +67,12 @@ export const useAppStore = create<AppState>((set) => ({
   pushOracleSpeech: (speech) =>
     set((state) => ({
       oracleHistory: [speech, ...state.oracleHistory].slice(0, 8)
+    })),
+  markFeedSpoken: (notificationId, spokenAt) =>
+    set((state) => ({
+      feedHistory: state.feedHistory.map((item) =>
+        item.id === notificationId ? { ...item, spokenAt } : item
+      )
     })),
   setFeed: (feed) =>
     set((state) => ({

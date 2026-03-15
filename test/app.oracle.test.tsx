@@ -226,7 +226,7 @@ describe("App oracle cadence", () => {
             text: "Storm over Abidjan",
             audioUrl: null,
             severity: "critical",
-            cooldownUntil: new Date(Date.now() + 60_000).toISOString()
+            cooldownUntil: new Date(Date.now() + 12_000).toISOString()
           };
 
       return new Response(JSON.stringify(payload), {
@@ -249,7 +249,7 @@ describe("App oracle cadence", () => {
   });
 
   it(
-    "evaluates on a 20-second cadence and speaks at most once per minute",
+    "evaluates on a 12-second cadence and speaks directly from the unified feed",
     async () => {
       const client = new QueryClient({
         defaultOptions: {
@@ -273,7 +273,7 @@ describe("App oracle cadence", () => {
       expect(evaluateOracleNotificationsMock).toHaveBeenCalledTimes(1);
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(20_000);
+        await vi.advanceTimersByTimeAsync(12_000);
       });
 
       expect(evaluateOracleNotificationsMock).toHaveBeenCalledTimes(2);
@@ -285,7 +285,7 @@ describe("App oracle cadence", () => {
       expect(speakCallsAfterFirstPoll).toHaveLength(1);
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(20_000);
+        await vi.advanceTimersByTimeAsync(12_000);
       });
 
       expect(evaluateOracleNotificationsMock).toHaveBeenCalledTimes(3);
@@ -293,10 +293,10 @@ describe("App oracle cadence", () => {
       const speakCallsAfterSecondPoll = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
         ([input]) => String(input).includes("/api/oracle/speak")
       );
-      expect(speakCallsAfterSecondPoll).toHaveLength(1);
+      expect(speakCallsAfterSecondPoll).toHaveLength(2);
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(20_000);
+        await vi.advanceTimersByTimeAsync(12_000);
       });
 
       expect(evaluateOracleNotificationsMock).toHaveBeenCalledTimes(4);
@@ -304,10 +304,10 @@ describe("App oracle cadence", () => {
       const speakCallsAfterThirdPoll = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
         ([input]) => String(input).includes("/api/oracle/speak")
       );
-      expect(speakCallsAfterThirdPoll).toHaveLength(1);
+      expect(speakCallsAfterThirdPoll).toHaveLength(2);
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(20_000);
+        await vi.advanceTimersByTimeAsync(12_000);
       });
 
       expect(evaluateOracleNotificationsMock).toHaveBeenCalledTimes(5);
@@ -315,7 +315,7 @@ describe("App oracle cadence", () => {
       const speakCallsAfterMinute = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
         ([input]) => String(input).includes("/api/oracle/speak")
       );
-      expect(speakCallsAfterMinute).toHaveLength(2);
+      expect(speakCallsAfterMinute).toHaveLength(3);
     },
     10_000
   );

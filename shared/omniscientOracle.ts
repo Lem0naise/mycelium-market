@@ -1,4 +1,4 @@
-import { assetIndex, cityIndex } from "./data";
+import { assetIndex, assetProfiles, cityIndex } from "./data";
 import { computeOracle } from "./oracle";
 import type {
   EnvironmentalSignal,
@@ -24,6 +24,14 @@ type TriggerRuleState = {
   direction: OraclePositionWatch["triggerDirection"];
 };
 
+type OracleOpportunityWatch = {
+  earthDelta: number;
+  severity: Severity;
+  triggerActive: boolean;
+  triggerDirection: OraclePositionWatch["triggerDirection"];
+  accessible: boolean;
+};
+
 export type OracleWatchState = {
   initialized: boolean;
   activeEventKeys: string[];
@@ -31,6 +39,7 @@ export type OracleWatchState = {
   myceliumOpenByCity: Record<string, boolean>;
   destinationBlockedByCity: Record<string, boolean>;
   positions: Record<string, OraclePositionWatch>;
+  opportunities: Record<string, OracleOpportunityWatch>;
 };
 
 export type OracleEvaluationInput = {
@@ -239,24 +248,31 @@ export function createOracleNotification({
     affectedPortfolioShare: round(affectedPortfolioShare, 2),
     holdingsCount,
     timestamp,
-    state
+    state,
+    spokenAt: null
   };
 }
 
 function selectSpeakableNotification(notifications: OracleNotification[]) {
   return notifications
-    .filter((notification) => notification.state === "active")
-    .filter((notification) => severityRank(notification.severity) >= severityRank("alert"))
-    .filter((notification) => Boolean(notification.speakText))
+    .filter(
+      (notification) =>
+        Boolean(notification.speakText) &&
+        (notification.state === "active" ||
+          notification.category === "recovery" ||
+          severityRank(notification.severity) >= severityRank("watch"))
+    )
     .sort((left, right) => {
       const severityWeight = (severity: Severity) => {
         if (severity === "critical") return 1_000;
         if (severity === "alert") return 500;
+        if (severity === "watch") return 200;
         return 0;
       };
       const categoryWeight = (category: OracleNotificationCategory) => {
         if (category === "flight") return 500;
         if (category === "storm") return 400;
+        if (category === "opportunity") return 350;
         if (category === "access") return 300;
         if (category === "driver") return 200;
         return 100;
@@ -314,12 +330,12 @@ function buildDriverNotification(params: {
       eventKey,
       category: "driver",
       severity,
-      title: `${asset.label} turned against ${cityName}`,
-      body: `${driverLabel} in ${cityName} is now working against your ${asset.label} position. Earth Delta slid from ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)}, putting about ${exposureText} under pressure.`,
+      title: `${asset.label} softening in ${cityName}`,
+      body: `${driverLabel} flipped against it. Delta ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)} on ${exposureText}.`,
       speakText:
         severity === "critical"
-          ? `${cityName} has turned sharply against your ${asset.label} holding. ${driverLabel} is now suppressing it at a critical level.`
-          : `${cityName} has started leaning against your ${asset.label} holding. ${driverLabel} just flipped negative on a live position.`,
+          ? `${asset.label} is breaking lower in ${cityName}. ${driverLabel} has turned sharply against it.`
+          : `${asset.label} just weakened in ${cityName}. ${driverLabel} flipped negative there.`,
       cityIds: [cityId],
       assetIds: [assetId],
       affectedValue,
@@ -335,12 +351,12 @@ function buildDriverNotification(params: {
       eventKey,
       category: "driver",
       severity,
-      title: `${asset.label} found support in ${cityName}`,
-      body: `${driverLabel} in ${cityName} is now boosting your ${asset.label} position. Earth Delta climbed from ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)}, now backing about ${exposureText}.`,
+      title: `${asset.label} strengthening in ${cityName}`,
+      body: `${driverLabel} turned supportive. Delta ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)} on ${exposureText}.`,
       speakText:
         severity === "critical"
-          ? `${cityName} has become strongly supportive for your ${asset.label} holding. ${driverLabel} just pushed it into a critical upside regime.`
-          : `${cityName} has started supporting your ${asset.label} holding. ${driverLabel} has flipped in your favour on a live position.`,
+          ? `${asset.label} is surging in ${cityName}. ${driverLabel} has turned strongly supportive.`
+          : `${asset.label} just strengthened in ${cityName}. ${driverLabel} flipped in your favour.`,
       cityIds: [cityId],
       assetIds: [assetId],
       affectedValue,
@@ -360,13 +376,13 @@ function buildDriverNotification(params: {
       eventKey,
       category: "driver",
       severity,
-      title: `${asset.label} trigger fired in ${cityName}`,
-      body: `${driverLabel} crossed a key threshold in ${cityName} at ${signalText}, opening a ${directionText} regime for your ${asset.label} position worth about ${exposureText}.`,
+      title: `${asset.label} trigger in ${cityName}`,
+      body: `${driverLabel} hit ${signalText}. ${directionText} regime live on ${exposureText}.`,
       speakText:
         severity === "critical"
-          ? `${asset.label} has triggered a critical ${directionText} move in ${cityName}.`
+          ? `${asset.label} has hit a critical ${directionText} trigger in ${cityName}.`
           : severity === "alert"
-            ? `${asset.label} has triggered a meaningful ${directionText} move in ${cityName}.`
+            ? `${asset.label} has hit a fresh ${directionText} trigger in ${cityName}.`
             : null,
       cityIds: [cityId],
       assetIds: [assetId],
@@ -384,10 +400,10 @@ function buildDriverNotification(params: {
       category: "driver",
       severity,
       title: `Sharp repricing in ${cityName}`,
-      body: `${asset.label} moved sharply in ${cityName} as ${driverLabel} shifted to ${signalText}. Earth Delta jumped from ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)} across a live position worth about ${exposureText}.`,
+      body: `${asset.label} repriced on ${driverLabel} at ${signalText}. Delta ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)} on ${exposureText}.`,
       speakText:
-        severity === "alert"
-          ? `${asset.label} is repricing sharply in ${cityName}. ${driverLabel} just moved hard enough to matter for your holding there.`
+        severityRank(severity) >= severityRank("watch")
+          ? `${asset.label} just repriced in ${cityName}. ${driverLabel} moved hard enough to matter there.`
           : null,
       cityIds: [cityId],
       assetIds: [assetId],
@@ -404,7 +420,8 @@ function buildDriverNotification(params: {
       category: "recovery",
       severity: "calm",
       title: `${asset.label} steadied in ${cityName}`,
-      body: `${driverLabel} has moved back out of its extreme zone in ${cityName}. Earth Delta eased from ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)}, so the position looks less stressed now.`,
+      body: `${driverLabel} cooled off. Delta eased from ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)}.`,
+      speakText: `${asset.label} has steadied in ${cityName}. ${driverLabel} is no longer in an extreme regime there.`,
       cityIds: [cityId],
       assetIds: [assetId],
       affectedValue,
@@ -418,6 +435,66 @@ function buildDriverNotification(params: {
   return null;
 }
 
+function buildOpportunityNotification(params: {
+  cityId: string;
+  assetId: string;
+  current: OracleOpportunityWatch;
+  previous: OracleOpportunityWatch | undefined;
+  askPrice: number;
+  timestamp: string;
+}): OracleNotification | null {
+  const { cityId, assetId, current, previous, askPrice, timestamp } = params;
+  const asset = assetIndex[assetId];
+  const cityName = cityIndex[cityId]?.name ?? cityId;
+  const driverKey = getPrimaryDriverKey(asset.ecologicalWeights);
+
+  if (!driverKey || !current.accessible) {
+    return null;
+  }
+
+  const driverLabel = signalMeta[driverKey].label;
+  const eventKey = `opportunity-${cityId}-${assetId}`;
+  const enteredSupport =
+    !previous ||
+    !previous.accessible ||
+    previous.earthDelta < 4 ||
+    current.earthDelta - previous.earthDelta >= 6 ||
+    (!previous.triggerActive && current.triggerActive);
+
+  if (!enteredSupport) {
+    return null;
+  }
+
+  const severity =
+    current.severity === "critical" || current.earthDelta >= 10
+      ? "critical"
+      : current.triggerActive || current.earthDelta >= 6
+        ? "alert"
+        : "watch";
+  const triggerText =
+    current.triggerActive && current.triggerDirection === "upside" ? " Trigger live." : "";
+
+  return createOracleNotification({
+    eventKey,
+    category: "opportunity",
+    severity,
+    title: `Buy ${asset.label} in ${cityName}`,
+    body: `${driverLabel} is supportive. Delta ${formatSigned(current.earthDelta)} at ${formatCurrency(askPrice)}.${triggerText}`,
+    speakText:
+      severity === "critical"
+        ? `Strong buy window. ${asset.label} in ${cityName} is in a critical upside regime.`
+        : severity === "alert"
+          ? `Buy window. ${asset.label} in ${cityName} looks attractive right now.`
+          : `Watch ${asset.label} in ${cityName}. Conditions just improved.`,
+    cityIds: [cityId],
+    assetIds: [assetId],
+    affectedValue: askPrice,
+    affectedPortfolioShare: 0,
+    holdingsCount: 0,
+    timestamp
+  });
+}
+
 export function createInitialOracleWatchState(): OracleWatchState {
   return {
     initialized: false,
@@ -425,7 +502,8 @@ export function createInitialOracleWatchState(): OracleWatchState {
     stormByCity: {},
     myceliumOpenByCity: {},
     destinationBlockedByCity: {},
-    positions: {}
+    positions: {},
+    opportunities: {}
   };
 }
 
@@ -451,6 +529,7 @@ export function evaluateOracleNotifications({
   const nextStormByCity: OracleWatchState["stormByCity"] = {};
   const nextMyceliumOpenByCity: OracleWatchState["myceliumOpenByCity"] = {};
   const nextDestinationBlockedByCity: OracleWatchState["destinationBlockedByCity"] = {};
+  const nextOpportunities: OracleWatchState["opportunities"] = {};
   const activeEventKeys = new Set<string>();
 
   const trackedStormCities = new Set<string>(
@@ -490,12 +569,12 @@ export function evaluateOracleNotifications({
           eventKey,
           category: "storm",
           severity,
-          title: `${cityName} has slipped under storm pressure`,
-          body: `${cityName} has moved into the storm track. That now covers about ${formatCurrency(affectedValue)} across ${holdingsCount} live positions, or ${formatShare(affectedPortfolioShare)} of the portfolio.`,
+          title: `${cityName} stormed`,
+          body: `${formatShare(affectedPortfolioShare)} of the book is exposed. ${formatCurrency(affectedValue)} now sits inside the front.`,
           speakText:
             severity === "critical"
-              ? `${cityName} is now under severe storm pressure. A meaningful share of your portfolio is exposed.`
-              : `${cityName} has moved into the storm track. Part of your portfolio there is now exposed.`,
+              ? `${cityName} just went storm-side. A large share of your book is exposed there.`
+              : `${cityName} just moved into the storm track. Part of your book is now exposed.`,
           cityIds: [cityId],
           assetIds: Object.entries(holdings[cityId] ?? {})
             .filter(([, quantity]) => quantity > 0)
@@ -514,8 +593,9 @@ export function evaluateOracleNotifications({
           eventKey,
           category: "recovery",
           severity: "watch",
-          title: `${cityName} has cleared`,
-          body: `${cityName} is moving out of the storm track. Roughly ${formatCurrency(affectedValue)} of held positions are back outside the front and normal access is reopening.`,
+          title: `${cityName} cleared`,
+          body: `${formatCurrency(affectedValue)} is back outside the front.`,
+          speakText: `${cityName} has cleared the storm track. Your positions there are back outside the front.`,
           cityIds: [cityId],
           assetIds: Object.entries(holdings[cityId] ?? {})
             .filter(([, quantity]) => quantity > 0)
@@ -576,8 +656,8 @@ export function evaluateOracleNotifications({
             eventKey,
             category: "access",
             severity: "alert",
-            title: `Route to ${cityName} has closed`,
-            body: `${cityName} is now behind the storm wall. That market holds about ${formatCurrency(affectedValue)}, so any move back in will have to wait for the front to clear.`,
+            title: `Route to ${cityName} closed`,
+            body: `Route shut. ${formatCurrency(affectedValue)} is stuck behind the storm wall.`,
             speakText: `${cityName} has slipped behind the storm wall. Access to that market is temporarily closed.`,
             cityIds: [focusedCityId],
             assetIds: Object.entries(holdings[focusedCityId] ?? {})
@@ -597,8 +677,9 @@ export function evaluateOracleNotifications({
             eventKey,
             category: "recovery",
             severity: "calm",
-            title: `Route to ${cityName} has reopened`,
-            body: `${cityName} is back outside the storm wall, so access to that market is opening again.`,
+            title: `${cityName} reopened`,
+            body: `The route is open again.`,
+            speakText: `The route to ${cityName} has reopened. That market is accessible again.`,
             cityIds: [focusedCityId],
             assetIds: Object.entries(holdings[focusedCityId] ?? {})
               .filter(([, quantity]) => quantity > 0)
@@ -683,6 +764,61 @@ export function evaluateOracleNotifications({
     });
   });
 
+  if (
+    notifications.length === 0 &&
+    cash >= 1_000 &&
+    focusedCityId !== currentCityId &&
+    !blockedSet.has(focusedCityId) &&
+    (portfolio.cityHoldingsCount[focusedCityId] ?? 0) === 0
+  ) {
+    const focusedSignal = signalByCity[focusedCityId];
+    if (focusedSignal) {
+      assetProfiles.forEach((asset) => {
+        if ((holdings[focusedCityId]?.[asset.id] ?? 0) > 0) {
+          return;
+        }
+
+        const askPrice =
+          prices[focusedCityId]?.[asset.id] ??
+          tickers.find((ticker) => ticker.assetId === asset.id)?.price ??
+          asset.basePrice;
+        const computation = computeOracle(asset, focusedSignal, askPrice);
+        const triggeredState = getTriggeredRuleState(asset.id, focusedSignal);
+        const opportunityKey = `${focusedCityId}:${asset.id}`;
+
+        nextOpportunities[opportunityKey] = {
+          earthDelta: computation.earthDelta,
+          severity: computation.severity,
+          triggerActive: triggeredState.active,
+          triggerDirection: triggeredState.direction,
+          accessible: true
+        };
+
+        const looksInteresting =
+          computation.earthDelta >= 4 ||
+          severityRank(computation.severity) >= severityRank("alert") ||
+          (triggeredState.active && triggeredState.direction === "upside");
+        if (!looksInteresting || !previousState.initialized) {
+          return;
+        }
+
+        const notification = buildOpportunityNotification({
+          cityId: focusedCityId,
+          assetId: asset.id,
+          current: nextOpportunities[opportunityKey],
+          previous: previousState.opportunities[opportunityKey],
+          askPrice,
+          timestamp
+        });
+
+        if (notification) {
+          activeEventKeys.add(`opportunity-${focusedCityId}-${asset.id}`);
+          notifications.push(notification);
+        }
+      });
+    }
+  }
+
   return {
     notifications,
     speakable: selectSpeakableNotification(notifications),
@@ -692,7 +828,8 @@ export function evaluateOracleNotifications({
       stormByCity: nextStormByCity,
       myceliumOpenByCity: nextMyceliumOpenByCity,
       destinationBlockedByCity: nextDestinationBlockedByCity,
-      positions: nextPositions
+      positions: nextPositions,
+      opportunities: nextOpportunities
     }
   };
 }
