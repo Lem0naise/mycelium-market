@@ -107,6 +107,47 @@ describe("omniscient oracle", () => {
     expect(cleared.notifications[0].state).toBe("resolved");
   });
 
+  it("makes alert-level storm exposure speakable when a remote holding is materially exposed", () => {
+    const holdings = buildHoldings();
+    holdings.abidjan.KAICOIN = 1;
+    const prices = buildPriceBook();
+    const tickers = createFallbackTickers();
+    const signals = createFallbackSignals();
+
+    const seeded = evaluateOracleNotifications({
+      signals,
+      holdings,
+      prices,
+      tickers,
+      cash: 840_000,
+      blockedCityIds: [],
+      currentCityId: "southampton",
+      focusedCityId: "southampton",
+      flight: null,
+      previousState: createInitialOracleWatchState(),
+      now: "2026-03-14T10:00:00.000Z"
+    });
+
+    const result = evaluateOracleNotifications({
+      signals,
+      holdings,
+      prices,
+      tickers,
+      cash: 840_000,
+      blockedCityIds: ["abidjan"],
+      currentCityId: "southampton",
+      focusedCityId: "southampton",
+      flight: null,
+      previousState: seeded.nextState,
+      now: "2026-03-14T10:00:20.000Z"
+    });
+
+    expect(result.notifications).toHaveLength(1);
+    expect(result.notifications[0].severity).toBe("alert");
+    expect(result.notifications[0].speakText).toMatch(/storm track/i);
+    expect(result.speakable?.eventKey).toBe("storm-abidjan");
+  });
+
   it("ignores storms on tiny remote positions", () => {
     const holdings = buildHoldings();
     holdings.abidjan.IWG = 1;
@@ -184,6 +225,7 @@ describe("omniscient oracle", () => {
     expect(result.notifications).toHaveLength(1);
     expect(result.notifications[0].eventKey).toBe("driver-abidjan-KAICOIN");
     expect(result.notifications[0].title).toMatch(/found support/i);
+    expect(result.notifications[0].severity).toBe("alert");
     expect(result.speakable?.eventKey).toBe("driver-abidjan-KAICOIN");
   });
 
