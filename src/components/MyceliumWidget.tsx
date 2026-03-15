@@ -20,8 +20,8 @@ export function getEnvironmentalEffects(soilMoisture: number, soilPh: number, hu
     soilPh < 5.5
       ? {
         id: "acid",
-        label: "ACID ×5 BETA",
-        desc: "5× volatility",
+        label: "ACID x2 BETA",
+        desc: "5x volatility",
         color: "#ef4444",
         bg: "rgba(220,38,38,0.13)",
         border: "rgba(220,38,38,0.45)",
@@ -82,7 +82,7 @@ export function getEnvironmentalEffects(soilMoisture: number, soilPh: number, hu
     humidity > 80
       ? {
         id: "saturated-hum",
-        label: "DELAY +2s",
+        label: "DELAY +0.5s",
         desc: "Trade lag",
         color: "#f59e0b",
         bg: "rgba(245,158,11,0.10)",

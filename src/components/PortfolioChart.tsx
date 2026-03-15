@@ -5,7 +5,7 @@ import { renderCurrencyText } from "./currency";
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Filler);
 
 const INITIAL_CASH = 100_000;
-const H = 56;
+const H = 250;
 
 type Props = { history: number[] };
 
@@ -105,11 +105,10 @@ export function PortfolioChart({ history }: Props) {
               ? "rgba(61,220,132,0.13)"
               : "rgba(255,92,92,0.13)",
             color,
-            border: `1px solid ${
-              meta.vsInitial
-                ? "rgba(61,220,132,0.3)"
-                : "rgba(255,92,92,0.3)"
-            }`,
+            border: `1px solid ${meta.vsInitial
+              ? "rgba(61,220,132,0.3)"
+              : "rgba(255,92,92,0.3)"
+              }`,
           }}
         >
           {meta.pct >= 0 ? "+" : ""}

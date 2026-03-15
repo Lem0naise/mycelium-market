@@ -11,6 +11,7 @@ import { useAppStore } from "./appStore";
 export type TradingState = {
   cash: number;
   holdings: Record<string, Record<string, number>>;
+  avgBuyPrice: Record<string, Record<string, number>>;
   prices: Record<string, Record<string, number>>;
   changePct: Record<string, Record<string, number>>;
   priceHistory: Record<string, Record<string, number[]>>;
@@ -35,18 +36,21 @@ export type TradingState = {
 const INITIAL_CASH = 100000;
 
 const initialHoldings: Record<string, Record<string, number>> = {};
+const initialAvgBuyPrice: Record<string, Record<string, number>> = {};
 const initialPrices: Record<string, Record<string, number>> = {};
 const initialChangePct: Record<string, Record<string, number>> = {};
 const initialPriceHistory: Record<string, Record<string, number[]>> = {};
 
 cities.forEach((city) => {
   initialHoldings[city.id] = {};
+  initialAvgBuyPrice[city.id] = {};
   initialPrices[city.id] = {};
   initialChangePct[city.id] = {};
   initialPriceHistory[city.id] = {};
 
   assetProfiles.forEach((asset) => {
     initialHoldings[city.id][asset.id] = 0;
+    initialAvgBuyPrice[city.id][asset.id] = 0;
     initialPrices[city.id][asset.id] = asset.basePrice;
     initialChangePct[city.id][asset.id] = 0;
     initialPriceHistory[city.id][asset.id] = [asset.basePrice];
@@ -91,6 +95,7 @@ async function applyPreTradeEffects(
 export const useTradingStore = create<TradingState>()((set, get) => ({
   cash: INITIAL_CASH,
   holdings: JSON.parse(JSON.stringify(initialHoldings)),
+  avgBuyPrice: JSON.parse(JSON.stringify(initialAvgBuyPrice)),
   prices: JSON.parse(JSON.stringify(initialPrices)),
   priceHistory: JSON.parse(JSON.stringify(initialPriceHistory)),
   changePct: JSON.parse(JSON.stringify(initialChangePct)),
@@ -190,16 +195,28 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       }
     }
 
-    set((currentState) => ({
-      cash: currentState.cash - cost,
-      holdings: {
-        ...currentState.holdings,
-        [cityId]: {
-          ...currentState.holdings[cityId],
-          [assetId]: (currentState.holdings[cityId]?.[assetId] || 0) + quantity
+    set((currentState) => {
+      const oldQty = currentState.holdings[cityId]?.[assetId] || 0;
+      const oldAvg = currentState.avgBuyPrice[cityId]?.[assetId] || 0;
+      const newAvg = (oldAvg * oldQty + price * quantity) / (oldQty + quantity);
+      return {
+        cash: currentState.cash - cost,
+        holdings: {
+          ...currentState.holdings,
+          [cityId]: {
+            ...currentState.holdings[cityId],
+            [assetId]: oldQty + quantity
+          }
+        },
+        avgBuyPrice: {
+          ...currentState.avgBuyPrice,
+          [cityId]: {
+            ...currentState.avgBuyPrice[cityId],
+            [assetId]: newAvg
+          }
         }
-      }
-    }));
+      };
+    });
 
     return {
       ok: true,
@@ -284,16 +301,26 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
 
     const revenue = price * quantity;
 
-    set((currentState) => ({
-      cash: currentState.cash + revenue,
-      holdings: {
-        ...currentState.holdings,
-        [cityId]: {
-          ...currentState.holdings[cityId],
-          [assetId]: currentHoldings - quantity
+    set((currentState) => {
+      const newQty = currentHoldings - quantity;
+      return {
+        cash: currentState.cash + revenue,
+        holdings: {
+          ...currentState.holdings,
+          [cityId]: {
+            ...currentState.holdings[cityId],
+            [assetId]: newQty
+          }
+        },
+        avgBuyPrice: {
+          ...currentState.avgBuyPrice,
+          [cityId]: {
+            ...currentState.avgBuyPrice[cityId],
+            [assetId]: newQty <= 0 ? 0 : (currentState.avgBuyPrice[cityId]?.[assetId] || 0)
+          }
         }
-      }
-    }));
+      };
+    });
 
     return {
       ok: true,
@@ -338,7 +365,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
 
           // Ring-buffer style history: push into existing array, trim from front
           // only when over window.  Avoids spread-copy every tick.
-          const WINDOW = 40;
+          const WINDOW = 100;
           let history = cityHistory[assetId];
           if (!history) {
             history = [basePrice, newPrice];
@@ -369,6 +396,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
     set({
       cash: INITIAL_CASH,
       holdings: JSON.parse(JSON.stringify(initialHoldings)),
+      avgBuyPrice: JSON.parse(JSON.stringify(initialAvgBuyPrice)),
       prices: JSON.parse(JSON.stringify(initialPrices)),
       priceHistory: JSON.parse(JSON.stringify(initialPriceHistory)),
       changePct: JSON.parse(JSON.stringify(initialChangePct)),

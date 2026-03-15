@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Filler } from "chart.js";
+import type { ChartDataset } from "chart.js";
 import { assetIndex, cityIndex } from "../../shared/data";
 import { useTradingStore } from "../store/tradingStore";
 import { myceliumStatus } from "./MyceliumWidget";
@@ -16,7 +17,7 @@ import type {
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Filler);
 
-function PriceSparkline({ data, cityName }: { data: number[]; cityName: string }) {
+function PriceSparkline({ data, cityName, avgBuyPrice }: { data: number[]; cityName: string; avgBuyPrice?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart | null>(null);
   const isUpTrend = data[data.length - 1] >= data[0];
@@ -33,19 +34,33 @@ function PriceSparkline({ data, cityName }: { data: number[]; cityName: string }
     grad.addColorStop(0, color + "44");
     grad.addColorStop(1, color + "00");
 
+    const datasets: ChartDataset<"line">[] = [{
+      data,
+      borderColor: color,
+      borderWidth: 2,
+      pointRadius: 0,
+      fill: true,
+      backgroundColor: grad,
+      tension: 0.3,
+    }];
+
+    if (avgBuyPrice && avgBuyPrice > 0) {
+      datasets.push({
+        data: data.map(() => avgBuyPrice),
+        borderColor: "#f59e0b",
+        borderWidth: 1.5,
+        borderDash: [5, 4],
+        pointRadius: 0,
+        fill: false,
+        tension: 0,
+      });
+    }
+
     chartRef.current = new Chart(ctx, {
       type: "line",
       data: {
         labels: data.map((_, i) => i),
-        datasets: [{
-          data,
-          borderColor: color,
-          borderWidth: 2,
-          pointRadius: 0,
-          fill: true,
-          backgroundColor: grad,
-          tension: 0.3,
-        }],
+        datasets,
       },
       options: {
         animation: false,
@@ -60,14 +75,19 @@ function PriceSparkline({ data, cityName }: { data: number[]; cityName: string }
     });
 
     return () => { chartRef.current?.destroy(); chartRef.current = null; };
-  }, [data, color]);
+  }, [data, color, avgBuyPrice]);
 
   return (
     <div style={{ marginBottom: "16px", padding: "12px 14px", background: "var(--panel-bg)", borderRadius: "8px", border: "1px solid var(--border)" }}>
       <span className="eyebrow" style={{ display: "block", marginBottom: "8px" }}>
         Past Prices ({cityName})
+        {avgBuyPrice && avgBuyPrice > 0 ? (
+          <span style={{ marginLeft: "10px", color: "#f59e0b", fontStyle: "normal", fontSize: "0.72rem" }}>
+            — avg buy {formatGBP(avgBuyPrice)}
+          </span>
+        ) : null}
       </span>
-      <div style={{ height: "40px", position: "relative" }}>
+      <div style={{ height: "150px", position: "relative" }}>
         <canvas ref={canvasRef} />
       </div>
     </div>
@@ -87,7 +107,7 @@ type MarketPanelProps = {
 };
 
 const formatGBP = (value: number) =>
-  `£${new Intl.NumberFormat("en-GB", {
+  `${new Intl.NumberFormat("en-GB", {
     maximumFractionDigits: value >= 1000 ? 0 : 2,
     minimumFractionDigits: value >= 1000 ? 0 : 2,
   }).format(value)}`;
@@ -132,7 +152,7 @@ export function MarketPanel({
   flight,
   onSelectAsset,
 }: MarketPanelProps) {
-  const { cash, holdings, prices, priceHistory, buyAsset, sellAsset, resetPortfolio, signalHistory } = useTradingStore();
+  const { cash, holdings, avgBuyPrice, prices, priceHistory, buyAsset, sellAsset, resetPortfolio, signalHistory } = useTradingStore();
 
   const asset = assetIndex[selectedAssetId];
   const primaryTicker = tickers.find((ticker) => ticker.assetId === selectedAssetId);
@@ -278,10 +298,12 @@ export function MarketPanel({
         {(() => {
           const historyData = priceHistory[currentCityId]?.[selectedAssetId] || [];
           if (historyData.length < 2) return null;
+          const cityAvgBuy = avgBuyPrice[currentCityId]?.[selectedAssetId] || 0;
           return (
             <PriceSparkline
               data={historyData}
               cityName={currentCity?.name ?? currentCityId}
+              avgBuyPrice={cityAvgBuy > 0 ? cityAvgBuy : undefined}
             />
           );
         })()}
