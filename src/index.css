@@ -309,6 +309,29 @@ button {
   min-height: 70vh;
 }
 
+/* ── Left-column stacked layout (chart + feed) ─────────────────────────── */
+.left-column-stack {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 0.75rem;
+}
+
+.left-column-stack .panel {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+/* Portfolio history chart card */
+.portfolio-chart-card {
+  flex-shrink: 0;
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
 .globe-stage {
   position: relative;
   height: 100%;
