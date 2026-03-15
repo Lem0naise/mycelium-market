@@ -124,6 +124,10 @@ export async function resolveScenarioPreview(
 // Add a global lock variable at the top of your app.ts (outside the functions)
 let globalAudioCooldown = 0;
 
+export function resetOracleSpeechCooldown() {
+  globalAudioCooldown = 0;
+}
+
 export async function resolveOracleSpeech(
   provider: DataProvider,
   body: OracleSpeakRequest
@@ -148,14 +152,15 @@ export async function resolveOracleSpeech(
   globalAudioCooldown = now + 15_000; // Temporary 15s lock while fetching
 
   try {
-    const audioUrl = await provider.speak(text);
-
-    if (!audioUrl) {
-      throw new Error("Failed to generate audio URL");
+    let audioUrl: string | null = null;
+    try {
+      audioUrl = await provider.speak(text);
+    } catch {
+      audioUrl = null;
     }
 
-    // 3. Extend the lock to 30 seconds upon success to give the audio time to play
-    globalAudioCooldown = Date.now() + 30_000;
+    // 3. Extend the lock to one minute so the oracle speaks sparingly.
+    globalAudioCooldown = Date.now() + 60_000;
 
     return {
       text,
@@ -164,7 +169,7 @@ export async function resolveOracleSpeech(
       cooldownUntil: new Date(globalAudioCooldown).toISOString()
     };
   } catch (error) {
-    // 4. Release the lock if the ElevenLabs API failed, so we can try again
+    // 4. Release the lock only for unexpected server-side failures.
     globalAudioCooldown = 0;
     throw error;
   }
@@ -191,8 +196,9 @@ export function createApp(provider = createDefaultProvider()) {
   app.post("/api/oracle/speak", async (request, response) => {
     try {
       response.json(await resolveOracleSpeech(provider, request.body as OracleSpeakRequest));
-    } catch {
-      response.status(400).json({ error: "text is required" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "oracle speech failed";
+      response.status(message === "text is required" ? 400 : 500).json({ error: message });
     }
   });
 

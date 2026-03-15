@@ -246,9 +246,14 @@ export function createOracleNotification({
 function selectSpeakableNotification(notifications: OracleNotification[]) {
   return notifications
     .filter((notification) => notification.state === "active")
-    .filter((notification) => notification.severity === "critical")
+    .filter((notification) => severityRank(notification.severity) >= severityRank("alert"))
     .filter((notification) => Boolean(notification.speakText))
     .sort((left, right) => {
+      const severityWeight = (severity: Severity) => {
+        if (severity === "critical") return 1_000;
+        if (severity === "alert") return 500;
+        return 0;
+      };
       const categoryWeight = (category: OracleNotificationCategory) => {
         if (category === "flight") return 500;
         if (category === "storm") return 400;
@@ -258,9 +263,12 @@ function selectSpeakableNotification(notifications: OracleNotification[]) {
       };
 
       return (
+        severityWeight(right.severity) +
         categoryWeight(right.category) +
         right.affectedPortfolioShare -
-        (categoryWeight(left.category) + left.affectedPortfolioShare)
+        (severityWeight(left.severity) +
+          categoryWeight(left.category) +
+          left.affectedPortfolioShare)
       );
     })[0] ?? null;
 }
@@ -311,7 +319,7 @@ function buildDriverNotification(params: {
       speakText:
         severity === "critical"
           ? `${cityName} has turned sharply against your ${asset.label} holding. ${driverLabel} is now suppressing it at a critical level.`
-          : null,
+          : `${cityName} has started leaning against your ${asset.label} holding. ${driverLabel} just flipped negative on a live position.`,
       cityIds: [cityId],
       assetIds: [assetId],
       affectedValue,
@@ -322,16 +330,17 @@ function buildDriverNotification(params: {
   }
 
   if (crossedPositive || (enteredMajorSeverity && current.earthDelta > 0)) {
+    const severity = current.severity === "critical" ? "critical" : "alert";
     return createOracleNotification({
       eventKey,
       category: "driver",
-      severity: current.severity === "critical" ? "critical" : "watch",
+      severity,
       title: `${asset.label} found support in ${cityName}`,
       body: `${driverLabel} in ${cityName} is now boosting your ${asset.label} position. Earth Delta climbed from ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)}, now backing about ${exposureText}.`,
       speakText:
-        current.severity === "critical"
+        severity === "critical"
           ? `${cityName} has become strongly supportive for your ${asset.label} holding. ${driverLabel} just pushed it into a critical upside regime.`
-          : null,
+          : `${cityName} has started supporting your ${asset.label} holding. ${driverLabel} has flipped in your favour on a live position.`,
       cityIds: [cityId],
       assetIds: [assetId],
       affectedValue,
@@ -356,7 +365,9 @@ function buildDriverNotification(params: {
       speakText:
         severity === "critical"
           ? `${asset.label} has triggered a critical ${directionText} move in ${cityName}.`
-          : null,
+          : severity === "alert"
+            ? `${asset.label} has triggered a meaningful ${directionText} move in ${cityName}.`
+            : null,
       cityIds: [cityId],
       assetIds: [assetId],
       affectedValue,
@@ -374,6 +385,10 @@ function buildDriverNotification(params: {
       severity,
       title: `Sharp repricing in ${cityName}`,
       body: `${asset.label} moved sharply in ${cityName} as ${driverLabel} shifted to ${signalText}. Earth Delta jumped from ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)} across a live position worth about ${exposureText}.`,
+      speakText:
+        severity === "alert"
+          ? `${asset.label} is repricing sharply in ${cityName}. ${driverLabel} just moved hard enough to matter for your holding there.`
+          : null,
       cityIds: [cityId],
       assetIds: [assetId],
       affectedValue,
@@ -480,7 +495,7 @@ export function evaluateOracleNotifications({
           speakText:
             severity === "critical"
               ? `${cityName} is now under severe storm pressure. A meaningful share of your portfolio is exposed.`
-              : null,
+              : `${cityName} has moved into the storm track. Part of your portfolio there is now exposed.`,
           cityIds: [cityId],
           assetIds: Object.entries(holdings[cityId] ?? {})
             .filter(([, quantity]) => quantity > 0)
@@ -563,6 +578,7 @@ export function evaluateOracleNotifications({
             severity: "alert",
             title: `Route to ${cityName} has closed`,
             body: `${cityName} is now behind the storm wall. That market holds about ${formatCurrency(affectedValue)}, so any move back in will have to wait for the front to clear.`,
+            speakText: `${cityName} has slipped behind the storm wall. Access to that market is temporarily closed.`,
             cityIds: [focusedCityId],
             assetIds: Object.entries(holdings[focusedCityId] ?? {})
               .filter(([, quantity]) => quantity > 0)

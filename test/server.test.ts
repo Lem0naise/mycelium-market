@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   createMockProvider,
+  resetOracleSpeechCooldown,
   resolveMarkets,
   resolveOracleSpeech,
   resolveScenarioPreview,
@@ -9,6 +10,10 @@ import {
 import { createFallbackSignals, createFallbackTickers } from "../shared/oracle";
 
 describe("terra arbitrage api", () => {
+  beforeEach(() => {
+    resetOracleSpeechCooldown();
+  });
+
   it("returns synthetic markets through the proxy logic", async () => {
     const provider = createMockProvider({
       async getMarkets() {
@@ -67,5 +72,24 @@ describe("terra arbitrage api", () => {
     expect(signals.signals[0].cityId).toBe("abidjan");
     expect(speech.audioUrl).toContain("data:audio");
     expect(speech.severity).toBe("alert");
+    expect(Date.parse(speech.cooldownUntil) - Date.now()).toBeGreaterThanOrEqual(59_000);
+  });
+
+  it("falls back to transcript-only oracle speech when audio generation is unavailable", async () => {
+    const provider = createMockProvider({
+      async speak() {
+        return null;
+      }
+    });
+
+    const speech = await resolveOracleSpeech(provider, {
+      text: "Tokyo just turned against your holding.",
+      severity: "alert"
+    });
+
+    expect(speech.text).toBe("Tokyo just turned against your holding.");
+    expect(speech.audioUrl).toBeNull();
+    expect(speech.severity).toBe("alert");
+    expect(Date.parse(speech.cooldownUntil) - Date.now()).toBeGreaterThanOrEqual(59_000);
   });
 });

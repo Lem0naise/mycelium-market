@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MarketsResponse } from "../shared/types";
 import { useAppStore } from "../src/store/appStore";
@@ -62,6 +62,7 @@ describe("App oracle cadence", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-14T10:00:00.000Z"));
 
     Object.defineProperty(window, "requestAnimationFrame", {
       configurable: true,
@@ -152,12 +153,41 @@ describe("App oracle cadence", () => {
       severity: "alert",
       title: "Driver swing in Abidjan",
       body: "A material signal shift hit the held position.",
+      speakText: "Abidjan has flipped in your favour.",
       cityIds: ["abidjan"],
       assetIds: ["KAICOIN"],
       affectedValue: 168000,
       affectedPortfolioShare: 62,
       holdingsCount: 1,
       timestamp: "2026-03-14T10:00:20.000Z"
+    });
+    const laterAlertNotification = createOracleNotification({
+      eventKey: "destination-abidjan",
+      category: "access",
+      severity: "alert",
+      title: "Route to Abidjan has closed",
+      body: "The route is blocked again.",
+      speakText: "Abidjan is behind the storm wall again.",
+      cityIds: ["abidjan"],
+      assetIds: ["KAICOIN"],
+      affectedValue: 168000,
+      affectedPortfolioShare: 62,
+      holdingsCount: 1,
+      timestamp: "2026-03-14T10:00:40.000Z"
+    });
+    const minuteLaterNotification = createOracleNotification({
+      eventKey: "storm-lagos",
+      category: "storm",
+      severity: "critical",
+      title: "Storm over Lagos",
+      body: "Critical pressure in another held city.",
+      speakText: "Lagos is under severe storm pressure.",
+      cityIds: ["lagos"],
+      assetIds: ["KAICOIN"],
+      affectedValue: 168000,
+      affectedPortfolioShare: 62,
+      holdingsCount: 1,
+      timestamp: "2026-03-14T10:01:20.000Z"
     });
 
     evaluateOracleNotificationsMock.mockReset();
@@ -172,9 +202,19 @@ describe("App oracle cadence", () => {
         speakable: criticalNotification,
         nextState: seededState
       })
+      .mockReturnValueOnce({
+        notifications: [laterAlertNotification],
+        speakable: laterAlertNotification,
+        nextState: seededState
+      })
+      .mockReturnValueOnce({
+        notifications: [laterAlertNotification],
+        speakable: laterAlertNotification,
+        nextState: seededState
+      })
       .mockReturnValue({
-        notifications: [],
-        speakable: null,
+        notifications: [minuteLaterNotification],
+        speakable: minuteLaterNotification,
         nextState: seededState
       });
 
@@ -186,7 +226,7 @@ describe("App oracle cadence", () => {
             text: "Storm over Abidjan",
             audioUrl: null,
             severity: "critical",
-            cooldownUntil: new Date("2026-03-14T10:01:00.000Z").toISOString()
+            cooldownUntil: new Date(Date.now() + 60_000).toISOString()
           };
 
       return new Response(JSON.stringify(payload), {
@@ -209,19 +249,19 @@ describe("App oracle cadence", () => {
   });
 
   it(
-    "evaluates on a 20-second cadence and speaks only one critical notification per cycle",
+    "evaluates on a 20-second cadence and speaks at most once per minute",
     async () => {
       const client = new QueryClient({
         defaultOptions: {
           queries: {
             retry: false
+          }
         }
-      }
-    });
+      });
 
-    render(
-      <QueryClientProvider client={client}>
-        <App />
+      render(
+        <QueryClientProvider client={client}>
+          <App />
         </QueryClientProvider>
       );
 
@@ -254,6 +294,28 @@ describe("App oracle cadence", () => {
         ([input]) => String(input).includes("/api/oracle/speak")
       );
       expect(speakCallsAfterSecondPoll).toHaveLength(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+
+      expect(evaluateOracleNotificationsMock).toHaveBeenCalledTimes(4);
+
+      const speakCallsAfterThirdPoll = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([input]) => String(input).includes("/api/oracle/speak")
+      );
+      expect(speakCallsAfterThirdPoll).toHaveLength(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+
+      expect(evaluateOracleNotificationsMock).toHaveBeenCalledTimes(5);
+
+      const speakCallsAfterMinute = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([input]) => String(input).includes("/api/oracle/speak")
+      );
+      expect(speakCallsAfterMinute).toHaveLength(2);
     },
     10_000
   );

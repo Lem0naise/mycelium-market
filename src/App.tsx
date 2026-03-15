@@ -36,7 +36,6 @@ import type {
   OracleNotification,
   OracleSpeakResponse,
   ScenarioPatch,
-  Severity,
   StormSnapshot
 } from "../shared/types";
 import {
@@ -44,6 +43,8 @@ import {
   globeLoadStageMeta,
   globeLoadStageOrder
 } from "./components/globeBoot";
+
+const ORACLE_SPEECH_COOLDOWN_MS = 60_000;
 
 const GlobeScene = lazy(() => import("./components/GlobeScene"));
 
@@ -194,20 +195,37 @@ function App() {
   });
   const oracleWatchStateRef = useRef(createInitialOracleWatchState());
   const lastSpokenNotificationIdRef = useRef<string | null>(null);
+  const nextOracleSpeechAtRef = useRef(0);
 
-  const queueOracleSpeech = (text: string, severity: Severity) => {
-    if (!audioEnabled || isOracleSpeakingRef.current || speakPendingRef.current) {
+  const syncOracleSpeechCooldown = (cooldownUntil?: string) => {
+    const parsedCooldown = cooldownUntil ? Date.parse(cooldownUntil) : Number.NaN;
+    nextOracleSpeechAtRef.current = Number.isFinite(parsedCooldown)
+      ? parsedCooldown
+      : Date.now() + ORACLE_SPEECH_COOLDOWN_MS;
+  };
+
+  const queueOracleSpeech = (notification: OracleNotification) => {
+    if (
+      !notification.speakText ||
+      !audioEnabled ||
+      isOracleSpeakingRef.current ||
+      speakPendingRef.current ||
+      Date.now() < nextOracleSpeechAtRef.current
+    ) {
       return;
     }
 
     speakMutation.mutate(
-      { text, severity },
+      { text: notification.speakText, severity: notification.severity },
       {
         onSuccess: async (response: OracleSpeakResponse) => {
+          syncOracleSpeechCooldown(response.cooldownUntil);
           if (response.skipped) {
             return;
           }
 
+          lastSpokenNotificationIdRef.current = notification.id;
+          pulseOracleFlash();
           pushOracleSpeech(response);
           if (response.audioUrl) {
             await playBase64Audio(response.audioUrl);
@@ -297,9 +315,7 @@ function App() {
       return;
     }
 
-    lastSpokenNotificationIdRef.current = speakable.id;
-    pulseOracleFlash();
-    queueOracleSpeech(speakable.speakText, speakable.severity);
+    queueOracleSpeech(speakable);
   };
 
   const marketsQuery = useQuery({
