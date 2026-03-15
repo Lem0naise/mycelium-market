@@ -66,10 +66,10 @@ function PriceSparkline({ data, cityName, avgBuyPrice }: { data: number[]; cityN
         animation: false,
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        plugins: { legend: { display: false }, tooltip: { enabled: true } },
         scales: {
-          x: { display: false },
-          y: { display: false },
+          x: { display: true },
+          y: { display: true },
         },
       },
     });
@@ -178,8 +178,14 @@ export function MarketPanel({
   const isSaturated = currentMycelium.soilMoisture > 80;
   const isWilting = currentMycelium.soilMoisture < 20;
   // Saturated: trade quantities scale 10×; Wilting: normal quantities but capped by spend
-  const buyQuantities: readonly number[] = isSaturated ? ([10, 100, 1000] as const) : ([1, 10, 100, 1000] as const);
-  const sellQuantities: readonly number[] = [1, 10, 100, 1000] as const;
+  const buyQuantities: readonly number[] = isSaturated ? ([10, 100, 1000, 10000, 100000, 1000000, 10000000] as const) : ([1, 10, 100, 1000, 10000, 100000, 1000000, 10000000] as const);
+  const sellQuantities: readonly number[] = [1, 10, 100, 1000, 10000, 100000, 1000000, 10000000] as const;
+
+  const formatQuantity = (q: number) => {
+    if (q >= 1000000) return `${q / 1000000}M`;
+    if (q >= 1000) return `${q / 1000}k`;
+    return q.toString();
+  };
   // Max spend per trade when wilting: 10% of cash
   const maxSpendWilting = isWilting ? cash * 0.1 : Infinity;
 
@@ -392,7 +398,7 @@ export function MarketPanel({
             </div>
           ) : null}
 
-          <div style={{ display: "flex", gap: "6px" }}>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
             {buyQuantities.map((quantity) => {
               const cost = currentPrice * quantity;
               // For saturated: need only 1/10 of cost; for wilting: cost must be ≤ maxSpendWilting
@@ -411,12 +417,12 @@ export function MarketPanel({
                     !isLocalTradingWindow
                   }
                 >
-                  {isTrading ? "..." : `BUY ${quantity}`}
+                  {isTrading ? "..." : `BUY ${formatQuantity(quantity)}`}
                 </button>
               );
             })}
           </div>
-          <div style={{ display: "flex", gap: "6px" }}>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
             {sellQuantities.map((quantity) => (
               <button
                 key={quantity}
@@ -429,7 +435,7 @@ export function MarketPanel({
                   !isLocalTradingWindow
                 }
               >
-                {isTrading ? "..." : `SELL ${quantity}`}
+                {isTrading ? "..." : `SELL ${formatQuantity(quantity)}`}
               </button>
             ))}
           </div>
