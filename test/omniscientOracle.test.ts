@@ -310,7 +310,7 @@ describe("omniscient oracle", () => {
     expect(result.notifications).toHaveLength(0);
   });
 
-  it("surfaces remote buy windows for assets not yet held", () => {
+  it("surfaces remote market signals for assets not yet held", () => {
     const holdings = buildHoldings();
     const prices = buildPriceBook();
     const tickers = createFallbackTickers();
@@ -348,8 +348,156 @@ describe("omniscient oracle", () => {
     expect(result.notifications.some((notification) => notification.category === "opportunity")).toBe(
       true
     );
-    expect(result.notifications.some((notification) => notification.title.match(/buy/i))).toBe(true);
+    expect(
+      result.notifications.some(
+        (notification) =>
+          notification.category === "opportunity" &&
+          /wind/i.test(notification.body) &&
+          /implied move/i.test(notification.body)
+      )
+    ).toBe(true);
     expect(result.speakable?.category).toBe("opportunity");
+  });
+
+  it("surfaces a strong opportunity in a non-focused city", () => {
+    const holdings = buildHoldings();
+    const prices = buildPriceBook();
+    const tickers = createFallbackTickers();
+    const baseSignals = patchSignals("tokyo", { wind: 12 });
+    const boostedSignals = patchSignals("tokyo", { wind: 36 }, baseSignals);
+
+    const seeded = evaluateOracleNotifications({
+      signals: baseSignals,
+      holdings,
+      prices,
+      tickers,
+      cash: 50_000,
+      blockedCityIds: [],
+      currentCityId: "southampton",
+      focusedCityId: "abidjan",
+      flight: null,
+      previousState: createInitialOracleWatchState(),
+      now: "2026-03-14T10:00:00.000Z"
+    });
+
+    const result = evaluateOracleNotifications({
+      signals: boostedSignals,
+      holdings,
+      prices,
+      tickers,
+      cash: 50_000,
+      blockedCityIds: [],
+      currentCityId: "southampton",
+      focusedCityId: "abidjan",
+      flight: null,
+      previousState: seeded.nextState,
+      now: "2026-03-14T10:00:12.000Z"
+    });
+
+    expect(result.notifications.some((notification) => notification.cityIds.includes("tokyo"))).toBe(true);
+    expect(result.notifications.some((notification) => notification.category === "opportunity")).toBe(
+      true
+    );
+  });
+
+  it("tracks remote storm blocks for held cities that are not focused", () => {
+    const holdings = buildHoldings();
+    holdings.tokyo.KAICOIN = 1;
+    const prices = buildPriceBook();
+    const tickers = createFallbackTickers();
+    const signals = createFallbackSignals();
+
+    const seeded = evaluateOracleNotifications({
+      signals,
+      holdings,
+      prices,
+      tickers,
+      cash: 0,
+      blockedCityIds: [],
+      currentCityId: "southampton",
+      focusedCityId: "abidjan",
+      flight: null,
+      previousState: createInitialOracleWatchState(),
+      now: "2026-03-14T10:00:00.000Z"
+    });
+
+    const result = evaluateOracleNotifications({
+      signals,
+      holdings,
+      prices,
+      tickers,
+      cash: 0,
+      blockedCityIds: ["tokyo"],
+      currentCityId: "southampton",
+      focusedCityId: "abidjan",
+      flight: null,
+      previousState: seeded.nextState,
+      now: "2026-03-14T10:00:20.000Z"
+    });
+
+    expect(result.notifications.some((notification) => notification.eventKey === "storm-tokyo")).toBe(true);
+  });
+
+  it("tracks remote mycelium closures for held cities that are not focused", () => {
+    const holdings = buildHoldings();
+    holdings.tokyo.EMB = 100;
+    const prices = buildPriceBook();
+    const tickers = createFallbackTickers();
+    const openSignals = patchSignals("tokyo", {
+      soilMoisture: 55,
+      soilPh: 6.4,
+      humidity: 55
+    });
+    const blockedSignals = patchSignals(
+      "tokyo",
+      {
+        soilMoisture: 10,
+        soilPh: 4.3,
+        humidity: 10
+      },
+      openSignals
+    );
+
+    const seeded = evaluateOracleNotifications({
+      signals: openSignals,
+      holdings,
+      prices,
+      tickers,
+      cash: 0,
+      blockedCityIds: [],
+      currentCityId: "southampton",
+      focusedCityId: "abidjan",
+      flight: null,
+      previousState: createInitialOracleWatchState(),
+      now: "2026-03-14T10:00:00.000Z"
+    });
+
+    const result = evaluateOracleNotifications({
+      signals: blockedSignals,
+      holdings,
+      prices,
+      tickers,
+      cash: 0,
+      blockedCityIds: [],
+      currentCityId: "southampton",
+      focusedCityId: "abidjan",
+      flight: null,
+      previousState: seeded.nextState,
+      now: "2026-03-14T10:00:20.000Z"
+    });
+
+    expect(result.notifications.some((notification) => notification.eventKey === "mycelium-tokyo")).toBe(
+      true
+    );
+    expect(
+      result.notifications.some(
+        (notification) =>
+          notification.eventKey === "mycelium-tokyo" &&
+          /soil moisture/i.test(notification.body) &&
+          /humidity/i.test(notification.body) &&
+          /pH/i.test(notification.body)
+      )
+    ).toBe(true);
   });
 
   it("stays quiet when mycelium access changes in the current city", () => {
