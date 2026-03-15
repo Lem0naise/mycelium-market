@@ -13,6 +13,7 @@ import type {
   RankedCity,
   StormSnapshot
 } from "../../shared/types";
+import { interpolateGreatCirclePoint } from "../../shared/simulation";
 import {
   getGlobeCanvasDpr,
   scheduleGlobeDetailStages,
@@ -104,6 +105,7 @@ const STORM_FOOTPRINT_FILL_OPACITY = 0.24;
 const STORM_FOOTPRINT_OUTLINE_OPACITY = 0.48;
 const STORM_SWIRL_PRIMARY_OPACITY = 0.3;
 const STORM_SWIRL_SECONDARY_OPACITY = 0.17;
+const STORM_VISUAL_INTERPOLATION_MS = 300;
 const globeTopology = countriesTopology as Record<string, unknown> & {
   objects: {
     countries: unknown;
@@ -140,6 +142,14 @@ function toRgba(hex: string, alpha: number) {
 
 function toRadians(value: number) {
   return (value * Math.PI) / 180;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function lerp(start: number, end: number, progress: number) {
+  return start + (end - start) * progress;
 }
 
 function destinationPoint(
@@ -244,6 +254,36 @@ function buildCityPointData(
 
 export function buildStormPointData(_storms: StormSnapshot[]) {
   return [] as GlobePointDatum[];
+}
+
+export function interpolateStormSnapshots(
+  previousStorms: StormSnapshot[],
+  nextStorms: StormSnapshot[],
+  progress: number
+) {
+  const safeProgress = clamp(progress, 0, 1);
+  const previousById = new Map(previousStorms.map((storm) => [storm.stormId, storm]));
+
+  return nextStorms.map((storm) => {
+    const previousStorm = previousById.get(storm.stormId);
+    if (!previousStorm) {
+      return storm;
+    }
+
+    const point = interpolateGreatCirclePoint(
+      { lat: previousStorm.lat, lon: previousStorm.lon },
+      { lat: storm.lat, lon: storm.lon },
+      safeProgress
+    );
+
+    return {
+      ...storm,
+      lat: point.lat,
+      lon: point.lon,
+      radiusDeg: lerp(previousStorm.radiusDeg, storm.radiusDeg, safeProgress),
+      intensity: lerp(previousStorm.intensity, storm.intensity, safeProgress)
+    };
+  });
 }
 
 function buildRingData(
@@ -416,6 +456,9 @@ function StormFootprints({
   const primarySwirlRefs = useRef<Array<THREE.Group | null>>([]);
   const secondarySwirlRefs = useRef<Array<THREE.Group | null>>([]);
   const containerRefs = useRef<Array<THREE.Group | null>>([]);
+  const previousStormsRef = useRef(storms);
+  const targetStormsRef = useRef(storms);
+  const transitionStartedAtRef = useRef(performance.now());
 
   // Shared unit-size geometries & materials — created once, reused for every storm.
   const sharedAssets = useMemo(() => {
@@ -496,14 +539,22 @@ function StormFootprints({
     });
   }, [globe, globeScale, storms]);
 
-  // Store latest storms in a ref so useFrame can read positions without causing re-renders.
-  const stormsRef = useRef(storms);
-  stormsRef.current = storms;
+  useEffect(() => {
+    previousStormsRef.current = targetStormsRef.current;
+    targetStormsRef.current = storms;
+    transitionStartedAtRef.current = performance.now();
+  }, [storms]);
 
   // Imperatively update container positions + swirl rotations every frame.
   useFrame((state) => {
     const baseRotation = state.clock.elapsedTime * STORM_SWIRL_ROTATION_SPEED;
-    const currentStorms = stormsRef.current;
+    const progress =
+      (performance.now() - transitionStartedAtRef.current) / STORM_VISUAL_INTERPOLATION_MS;
+    const currentStorms = interpolateStormSnapshots(
+      previousStormsRef.current,
+      targetStormsRef.current,
+      progress
+    );
 
     currentStorms.forEach((storm, index) => {
       const container = containerRefs.current[index];

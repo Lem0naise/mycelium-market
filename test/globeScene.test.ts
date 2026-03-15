@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildArcData, buildStormPointData } from "../src/components/GlobeScene";
+import {
+  buildArcData,
+  buildStormPointData,
+  interpolateStormSnapshots
+} from "../src/components/GlobeScene";
 import type { FlightState, StormSnapshot } from "../shared/types";
 
 const sampleStorms: StormSnapshot[] = [
@@ -66,5 +70,24 @@ describe("GlobeScene storm helpers", () => {
 
     expect(arcs).toHaveLength(1);
     expect(arcs[0]?.id).toBe("flight-1-route");
+  });
+
+  it("interpolates storm positions visually between polled snapshots", () => {
+    const start = sampleStorms;
+    const end = [
+      {
+        ...sampleStorms[0],
+        lat: 15.3599,
+        lon: 5.9917
+      }
+    ];
+
+    const midway = interpolateStormSnapshots(start, end, 0.5);
+
+    expect(midway).toHaveLength(1);
+    expect(midway[0].lat).not.toBe(start[0].lat);
+    expect(midway[0].lat).not.toBe(end[0].lat);
+    expect(midway[0].lon).not.toBe(start[0].lon);
+    expect(midway[0].lon).not.toBe(end[0].lon);
   });
 });
