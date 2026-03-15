@@ -27,8 +27,8 @@ export type TradingState = {
     mycelium: MyceliumSignal,
     quantity?: number
   ) => Promise<TradeResult>;
-  tickAllPrices: (updates: Array<{cityId: string; earthDeltas: Record<string, number>; mycelium?: MyceliumSignal}>) => void;
-  recordAllSignals: (updates: Array<{cityId: string; signals: Partial<Record<SignalKey, number>>}>) => void;
+  tickAllPrices: (updates: Array<{ cityId: string; earthDeltas: Record<string, number>; mycelium?: MyceliumSignal }>) => void;
+  recordAllSignals: (updates: Array<{ cityId: string; signals: Partial<Record<SignalKey, number>> }>) => void;
   resetPortfolio: () => void;
 };
 
@@ -127,19 +127,20 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       if (otherAssets.length > 0) {
         const randomAsset = otherAssets[Math.floor(Math.random() * otherAssets.length)];
         const randomPrice = state.prices[cityId]?.[randomAsset.id] ?? randomAsset.basePrice;
-
-        if (state.cash >= randomPrice) {
+        let randomAmount = 1;
+        randomAmount = Math.floor(Math.random() * (state.cash / randomPrice)) + 1;
+        if (state.cash >= randomPrice * randomAmount) {
           set((cs) => ({
-            cash: cs.cash - randomPrice,
+            cash: cs.cash - randomPrice * randomAmount,
             holdings: {
               ...cs.holdings,
               [cityId]: {
                 ...cs.holdings[cityId],
-                [randomAsset.id]: (cs.holdings[cityId]?.[randomAsset.id] || 0) + 1
+                [randomAsset.id]: (cs.holdings[cityId]?.[randomAsset.id] || 0) + randomAmount
               }
             }
           }));
-          redirectBuy = { assetId: randomAsset.id, quantity: 1, executedPrice: randomPrice };
+          redirectBuy = { assetId: randomAsset.id, quantity: randomAmount, executedPrice: randomPrice };
         }
       }
 
@@ -147,7 +148,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
         ok: false,
         reason: "humidity-reroute",
         message: redirectBuy
-          ? `Low humidity scrambled the network — bought 1× ${redirectBuy.assetId} at £${redirectBuy.executedPrice.toFixed(2)} instead.`
+          ? `Low humidity scrambled the network — bought ${redirectBuy.quantity}× ${redirectBuy.assetId} at £${redirectBuy.executedPrice.toFixed(2)} instead.`
           : `Low humidity scrambled the network — no affordable assets for redirect.`,
         redirectBuy
       };
@@ -312,17 +313,17 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       updates.forEach(({ cityId, earthDeltas, mycelium }) => {
         const newCityPrices = { ...newPrices[cityId] };
         const newCityChangePct = { ...newChangePct[cityId] };
-        const newCityPriceHistory = { ...newPriceHistory[cityId] };
+        const cityPriceHistory = { ...(state.priceHistory[cityId] || {}) };
 
         const pH = mycelium?.soilPh ?? 6.5;
-        const pHVolatilityFactor = pH < 5.5 ? 5 : pH > 7.5 ? 0.2 : 1;
+        const pHVolatilityFactor = pH < 5.5 ? 2 : pH > 7.5 ? 0.5 : 1; // VOLATILITY OF PH of soil
 
         Object.keys(newCityPrices).forEach((assetId) => {
           const delta = earthDeltas[assetId] || 0;
           const oldPrice = newCityPrices[assetId];
           const basePrice = assetIndex[assetId]?.basePrice ?? oldPrice;
 
-          const logShift = delta * 0.006 * pHVolatilityFactor;
+          const logShift = delta * 0.006 * pHVolatilityFactor; // i think this is the actual factor
           const meanRevPull = -0.001 * (Math.log(oldPrice) - Math.log(basePrice));
           const logNoise = (Math.random() - 0.5) * 0.03 * pHVolatilityFactor;
 
@@ -330,15 +331,24 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
           newCityPrices[assetId] = newPrice;
 
           const WINDOW = 40;
-          const prevHistory = newCityPriceHistory[assetId] || [basePrice];
-          newCityPriceHistory[assetId] = [...prevHistory, newPrice].slice(-WINDOW);
+          let history = cityPriceHistory[assetId];
+          if (!history) {
+            history = [basePrice];
+          } else {
+            history = [...history];
+          }
+          history.push(newPrice);
+          if (history.length > WINDOW) {
+            history.shift();
+          }
+          cityPriceHistory[assetId] = history;
 
           const rawChangePct = ((newPrice - oldPrice) / oldPrice) * 100;
           newCityChangePct[assetId] = Number(rawChangePct.toFixed(2));
         });
 
         newPrices[cityId] = newCityPrices;
-        newPriceHistory[cityId] = newCityPriceHistory;
+        newPriceHistory[cityId] = cityPriceHistory;
         newChangePct[cityId] = newCityChangePct;
       });
 
@@ -365,7 +375,7 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
       const newSignalHistory = { ...state.signalHistory };
 
       updates.forEach(({ cityId, signals }) => {
-        const cityHistory = { ...(newSignalHistory[cityId] ?? {}) };
+        const cityHistory = { ...(state.signalHistory[cityId] || {}) };
 
         (Object.keys(signals) as SignalKey[]).forEach((key) => {
           const value = signals[key];
@@ -373,8 +383,17 @@ export const useTradingStore = create<TradingState>()((set, get) => ({
             return;
           }
 
-          const previous = cityHistory[key] ?? [];
-          cityHistory[key] = [...previous, value].slice(-WINDOW);
+          let history = cityHistory[key];
+          if (!history) {
+            history = [];
+          } else {
+            history = [...history];
+          }
+          history.push(value);
+          if (history.length > WINDOW) {
+            history.shift();
+          }
+          cityHistory[key] = history;
         });
 
         newSignalHistory[cityId] = cityHistory;

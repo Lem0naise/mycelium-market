@@ -667,9 +667,9 @@ function App() {
       setLiveSignals(freshSignals);
 
       const effectiveSignals = applyStormEffectsToSignals(freshSignals, stormSnapshotsRef.current);
-      
-      const priceUpdates: Array<{cityId: string; earthDeltas: Record<string, number>; mycelium: { soilMoisture: number; soilPh: number; humidity: number }}> = [];
-      const signalUpdates: Array<{cityId: string; signals: EnvironmentalSignal}> = [];
+
+      const priceUpdates: Array<{ cityId: string; earthDeltas: Record<string, number>; mycelium: { soilMoisture: number; soilPh: number; humidity: number } }> = [];
+      const signalUpdates: Array<{ cityId: string; signals: EnvironmentalSignal }> = [];
 
       effectiveSignals.forEach((citySignal) => {
         const deltas: Record<string, number> = {};
@@ -690,13 +690,13 @@ function App() {
             humidity: citySignal.humidity,
           }
         });
-        
+
         signalUpdates.push({
           cityId: citySignal.cityId,
           signals: citySignal
         });
       });
-      
+
       tickAllPrices(priceUpdates);
       recordAllSignals(signalUpdates);
 
@@ -782,23 +782,16 @@ function App() {
       {oracleFlash ? <div className="oracle-flash-overlay" aria-hidden="true" /> : null}
 
       <header className="app-header">
-        <div>
-          <span className="eyebrow">Terra Arbitrage</span>
-          <h1>The planet is the trader.</h1>
+
+        {/* 1. Left Section */}
+        <div className="header-left">
+          <div>
+            <h1>mycelium<br />market</h1>
+          </div>
         </div>
 
-        <div
-          style={{
-            position: "absolute",
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            alignItems: "center",
-            gap: "28px",
-            pointerEvents: "none",
-            userSelect: "none"
-          }}
-        >
+        {/* 2. Center Section (No absolute positioning needed!) */}
+        <div className="header-center">
           <div style={{ textAlign: "right" }}>
             <span
               style={{
@@ -840,7 +833,6 @@ function App() {
                 marginBottom: "4px"
               }}
             >
-              Planetary Cycle
             </span>
             <div
               style={{
@@ -848,25 +840,29 @@ function App() {
                 fontWeight: "bold",
                 letterSpacing: "-0.03em",
                 lineHeight: 1,
-                color: "var(--text)"
+                color: "var(--text)",
+                textAlign: "left"
               }}
             >
-              {fictionalDayName}
+              {dayOfYear} <span style={{
+                fontSize: "1rem"
+              }} >{fictionalDayName}</span>
             </div>
             <div
               style={{
                 fontSize: "0.78rem",
                 color: "var(--text-muted)",
                 marginTop: "5px",
-                letterSpacing: "0.05em"
+                letterSpacing: "0.05em",
+                textAlign: "left"
               }}
             >
-              Week {fictionalWeek} · Cycle {fictionalYear}
+              Week {fictionalWeek} · Year {fictionalYear}
             </div>
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }} className="mycelium-spacer">
           <MyceliumWidget signals={signals} cityId={currentCityId} />
           <EnvironmentalEffectsPanel signals={signals} cityId={currentCityId} />
         </div>
@@ -934,7 +930,7 @@ function App() {
                       <span className="eyebrow">Portfolio</span>
                       {portfolioRollingPct !== null && (
                         <span style={{
-                          fontSize: "0.72rem",
+                          fontSize: "1rem",
                           fontWeight: "bold",
                           letterSpacing: "0.03em",
                           padding: "2px 7px",
@@ -950,7 +946,7 @@ function App() {
 
                     {/* Big total value display */}
                     <div style={{
-                      fontSize: "clamp(1.5rem, 2.8vw, 2.2rem)",
+                      fontSize: "clamp(1.5rem, 2.8vw, 4rem)",
                       fontWeight: "bold",
                       letterSpacing: "-0.03em",
                       lineHeight: 1,
@@ -990,10 +986,10 @@ function App() {
                               borderBottom: idx < portfolioItems.length - 1 ? "1px solid var(--border)" : "none",
                             }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                                <span style={{ fontWeight: "bold", fontSize: "0.9rem" }}>
+                                <span style={{ fontWeight: "bold", fontSize: "1.3rem" }}>
                                   {assetLabel} <span style={{ fontWeight: "normal", color: "var(--text-muted)" }}>×{item.qty}</span>
                                 </span>
-                                <strong style={{ fontSize: "0.95rem", color: "var(--accent)" }}>
+                                <strong style={{ fontSize: "1.3rem", color: "var(--accent)" }}>
                                   {formatGBPOverlay(positionValue)}
                                 </strong>
                               </div>

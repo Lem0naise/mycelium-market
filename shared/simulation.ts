@@ -18,12 +18,12 @@ const STORM_REPULSION_BUFFER_DEG = 14;
 const STORM_PREDICTION_LOOKAHEAD_MS = 4_000;
 const STORM_TARGET_MIN_MS = 45_000;
 const STORM_TARGET_MAX_MS = 70_000;
-const STORM_LOITER_DURATION_MS = 25_000;
-const STORM_TARGET_RAMP_MS = 10_000;
+const STORM_LOITER_DURATION_MS = 10_000;
+const STORM_TARGET_RAMP_MS = 1_000;
 const STORM_RECENT_HIT_WINDOW_MS = 90_000;
 const STORM_TARGET_NEAR_HIT_FACTOR = 0.58;
-const STORM_MAX_SPEED_DEG_PER_SEC = 1.25;
-const STORM_TARGET_FORCE = 0.01;
+const STORM_MAX_SPEED_DEG_PER_SEC = 6;
+const STORM_TARGET_FORCE = 0.08;
 const STORM_REPULSION_FORCE = 0.72;
 const STORM_OPEN_WATER_FORCE = 0.18;
 const STORM_WANDER_FORCE = 0.07;
@@ -403,7 +403,14 @@ export function initializeStormSystems(seed: number) {
     const attemptSeed = seed + attempt * 97;
     const random = createSeededRandom(attemptSeed);
     const selectedOrigins: GeoPoint[] = [];
+    // STORM LISTS HERE
     const hemisphereRanges: Array<[number, number]> = [
+      [8, 58],
+      [8, 58],
+      [8, 58],
+      [-58, -8],
+      [-58, -8],
+      [-58, -8],
       [8, 58],
       [8, 58],
       [8, 58],
@@ -417,7 +424,7 @@ export function initializeStormSystems(seed: number) {
       selectedOrigins.push(origin);
 
       const heading = randomBetween(random, 0, 360);
-      const speed = randomBetween(random, 0.72, 0.94);
+      const speed = randomBetween(random, 1, 3);
       const headingRad = toRadians(heading);
 
       return {
@@ -479,8 +486,8 @@ function chooseStormTargetCity(
     );
     const recentSelfPenalty =
       runtime.lastHitCityId === city.id &&
-      runtime.lastHitAtMs !== null &&
-      nowMs - runtime.lastHitAtMs < STORM_RECENT_HIT_WINDOW_MS
+        runtime.lastHitAtMs !== null &&
+        nowMs - runtime.lastHitAtMs < STORM_RECENT_HIT_WINDOW_MS
         ? 0.2
         : 1;
     const contentionPenalty = 1 / (1 + (targetedCounts[city.id] ?? 0) * 2.2);
@@ -742,7 +749,14 @@ function getOrCreateStormFieldCache(storms: StormSystem[]) {
 
 function pruneStormFieldCache(cache: StormFieldCache, latestTimeMs: number) {
   const minimumTimeMs = Math.max(0, latestTimeMs - STORM_CACHE_RETAIN_MS);
-  const firstRetainedIndex = cache.frames.findIndex((frame) => frame.timeMs >= minimumTimeMs);
+  
+  let firstRetainedIndex = 0;
+  for (let i = 0; i < cache.frames.length; i++) {
+    if (cache.frames[i].timeMs >= minimumTimeMs) {
+      firstRetainedIndex = i;
+      break;
+    }
+  }
 
   if (firstRetainedIndex <= 1) {
     return;
@@ -757,11 +771,22 @@ function ensureStormFieldThrough(
   targetTimeMs: number
 ) {
   const normalizedTargetMs = Math.max(0, Math.ceil(targetTimeMs / STORM_STEP_MS) * STORM_STEP_MS);
-  let latestFrame = cache.frames[cache.frames.length - 1];
 
   if (normalizedTargetMs < cache.frames[0].timeMs) {
     cache.frames = [createInitialStormFieldFrame(storms)];
-    latestFrame = cache.frames[0];
+  }
+
+  let latestFrame = cache.frames[cache.frames.length - 1];
+
+  if (normalizedTargetMs <= latestFrame.timeMs) {
+    return;
+  }
+
+  const MAX_CATCH_UP_MS = 2000;
+  if (normalizedTargetMs - latestFrame.timeMs > MAX_CATCH_UP_MS) {
+    latestFrame = cloneStormFieldFrame(latestFrame);
+    latestFrame.timeMs = normalizedTargetMs - MAX_CATCH_UP_MS;
+    cache.frames.push(latestFrame);
   }
 
   while (latestFrame.timeMs < normalizedTargetMs) {
@@ -805,10 +830,22 @@ function getStormFieldFrameAt(storms: StormSystem[], elapsedMs: number) {
 
   const lowerTimeMs = Math.floor(safeElapsedMs / STORM_STEP_MS) * STORM_STEP_MS;
   const upperTimeMs = Math.ceil(safeElapsedMs / STORM_STEP_MS) * STORM_STEP_MS;
-  const lowerFrame =
-    cache.frames.find((frame) => frame.timeMs === lowerTimeMs) ?? cache.frames[0];
-  const upperFrame =
-    cache.frames.find((frame) => frame.timeMs === upperTimeMs) ?? cache.frames[cache.frames.length - 1];
+  
+  let lowerFrame = cache.frames[0];
+  for (let i = cache.frames.length - 1; i >= 0; i--) {
+    if (cache.frames[i].timeMs <= lowerTimeMs) {
+      lowerFrame = cache.frames[i];
+      break;
+    }
+  }
+
+  let upperFrame = cache.frames[cache.frames.length - 1];
+  for (let i = 0; i < cache.frames.length; i++) {
+    if (cache.frames[i].timeMs >= upperTimeMs) {
+      upperFrame = cache.frames[i];
+      break;
+    }
+  }
 
   if (lowerTimeMs === upperTimeMs) {
     return cloneStormFieldFrame(lowerFrame);

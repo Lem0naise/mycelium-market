@@ -148,7 +148,7 @@ export function MyceliumWidget({ signals, cityId }: Props) {
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
         <span style={{
-          fontSize: "0.68rem",
+          fontSize: "1rem",
           fontWeight: "bold",
           letterSpacing: "0.1em",
           color: "var(--text-muted)",
@@ -158,7 +158,7 @@ export function MyceliumWidget({ signals, cityId }: Props) {
           Mycelium Network
         </span>
         <span style={{
-          fontSize: "0.68rem",
+          fontSize: "0.8rem",
           fontWeight: "bold",
           color: mycStatus.allOk ? "#4caf50" : "#ef4444",
           background: mycStatus.allOk ? "rgba(76,175,80,0.15)" : "rgba(220,38,38,0.15)",
@@ -185,7 +185,7 @@ export function MyceliumWidget({ signals, cityId }: Props) {
                 {meta.label}
               </div>
               <div style={{
-                fontSize: "1.25rem",
+                fontSize: "1.5rem",
                 fontWeight: "bold",
                 color: ok ? "var(--text)" : "#ef4444",
                 lineHeight: 1,
@@ -193,7 +193,7 @@ export function MyceliumWidget({ signals, cityId }: Props) {
                 {val.toFixed(1)}<span style={{ fontSize: "0.75rem" }}>{meta.unit}</span>
               </div>
               <div style={{
-                fontSize: "0.65rem",
+                fontSize: "0.7rem",
                 color: ok ? "#4caf50" : "#ef4444",
                 fontWeight: "bold",
                 marginTop: "4px",
@@ -233,7 +233,7 @@ export function EnvironmentalEffectsPanel({ signals, cityId }: Props) {
       minWidth: "172px",
     }}>
       <span style={{
-        fontSize: "0.68rem",
+        fontSize: "1rem",
         fontWeight: "bold",
         letterSpacing: "0.1em",
         color: "var(--text-muted)",
@@ -260,7 +260,7 @@ export function EnvironmentalEffectsPanel({ signals, cityId }: Props) {
             }}
           >
             <span style={{
-              fontSize: "0.6rem",
+              fontSize: "0.7rem",
               color: "var(--text-muted)",
               fontWeight: "bold",
               minWidth: "24px",
@@ -270,7 +270,7 @@ export function EnvironmentalEffectsPanel({ signals, cityId }: Props) {
             </span>
             <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
               <span style={{
-                fontSize: "0.7rem",
+                fontSize: "1rem",
                 fontWeight: "bold",
                 color,
                 letterSpacing: "0.04em",

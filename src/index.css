@@ -202,18 +202,45 @@ button {
 
 .app-header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 1rem;
   margin-bottom: 1rem;
+  width: 100%;
 }
 
 .app-header h1 {
-  margin: 0.2rem 0 0;
+  margin: 0;
   font-size: clamp(2rem, 3vw, 3.6rem);
   line-height: 0.98;
   letter-spacing: -0.05em;
   max-width: 8ch;
+}
+
+.header-left {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.header-center {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.header-right {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.mycelium-spacer {
+  flex: 1;
+  display: flex;
+  justify-content: right;
+  padding: 0 1rem;
 }
 
 .header-stats {
@@ -277,7 +304,35 @@ button {
 .left-column,
 .right-column,
 .globe-column {
-  min-height: 0;
+  position: relative;
+  height: 100%;
+  min-height: 70vh;
+}
+
+.globe-stage {
+  position: relative;
+  height: 100%;
+}
+
+.globe-scene-slot {
+  opacity: 0;
+  transform: scale(0.985);
+  transition:
+    opacity 360ms ease,
+    transform 360ms ease;
+  height: 100%;
+}
+
+.globe-shell {
+  position: relative;
+  height: 100%;
+  min-height: 70vh;
+  border-radius: 34px;
+  overflow: hidden;
+  border: 1px solid rgba(150, 170, 184, 0.16);
+  background:
+    radial-gradient(circle at 50% 20%, rgba(50, 83, 84, 0.16), transparent 40%),
+    rgba(5, 7, 13, 0.92);
 }
 
 .panel {
@@ -470,7 +525,6 @@ button {
   top: 1rem;
   display: grid;
   gap: 0.8rem;
-  max-width: min(28vw, 320px);
 }
 
 .overlay-panel {
@@ -1246,6 +1300,26 @@ input[type="range"]:focus {
   .globe-overlay {
     max-width: 340px;
   }
+
+  .app-header {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1.5rem;
+  }
+
+  .header-left {
+    flex: 0 0 100%;
+  }
+
+  .header-right {
+    flex: 0 0 100%;
+    justify-content: space-between;
+  }
+
+  .mycelium-spacer {
+    justify-content: flex-start;
+    padding: 0;
+  }
 }
 
 @media (max-width: 900px) {
@@ -1266,7 +1340,19 @@ input[type="range"]:focus {
   }
 
   .app-header {
-    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .header-center {
+    white-space: normal;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .header-right-content {
+    flex-wrap: wrap;
+    gap: 1rem;
   }
 
   .header-stats,
