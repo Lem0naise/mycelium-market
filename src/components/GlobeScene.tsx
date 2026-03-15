@@ -415,6 +415,9 @@ function StormFootprints({
   const globeScale = useMemo(() => baseRadius / globe.getGlobeRadius(), [globe]);
   const primarySwirlRefs = useRef<Array<THREE.Group | null>>([]);
   const secondarySwirlRefs = useRef<Array<THREE.Group | null>>([]);
+  const containerRefs = useRef<Array<THREE.Group | null>>([]);
+
+  // Shared unit-size geometries & materials — created once, reused for every storm.
   const sharedAssets = useMemo(() => {
     const outerFill = new THREE.CircleGeometry(1, STORM_FOOTPRINT_SEGMENTS);
     const outline = buildStormOutlineGeometry(1);
@@ -455,6 +458,8 @@ function StormFootprints({
       swirlSecondaryMaterial
     };
   }, []);
+
+  // Per-storm swirl line objects (depend only on storm count).
   const sharedSwirlLines = useMemo(
     () =>
       storms.map((_, index) => {
@@ -470,53 +475,57 @@ function StormFootprints({
           secondary
         };
       }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [sharedAssets, storms.length]
   );
 
-  const stormTransforms = useMemo(() => {
+  // Per-storm local radius for scaling the unit-size shared geometries.
+  const stormScales = useMemo(() => {
     return storms.map((storm) => {
-      const centerCoords = globe.getCoords(storm.lat, storm.lon, 0.009);
-      const center = new THREE.Vector3(
-        centerCoords.x * globeScale,
-        centerCoords.y * globeScale,
-        centerCoords.z * globeScale
-      );
-      const perimeterPoint = destinationPoint({ lat: storm.lat, lon: storm.lon }, 90, storm.radiusDeg);
+      const refCoords = globe.getCoords(0, 0, 0.009);
+      const refCenter = new THREE.Vector3(refCoords.x * globeScale, refCoords.y * globeScale, refCoords.z * globeScale);
+      const perimeterPoint = destinationPoint({ lat: 0, lon: 0 }, 90, storm.radiusDeg);
       const perimeterCoords = globe.getCoords(perimeterPoint.lat, perimeterPoint.lon, 0.009);
       const localRadius = new THREE.Vector3(
         perimeterCoords.x * globeScale,
         perimeterCoords.y * globeScale,
         perimeterCoords.z * globeScale
-      ).distanceTo(center);
-      const swirlQuaternion = new THREE.Quaternion().setFromUnitVectors(
-        new THREE.Vector3(0, 0, 1),
-        center.clone().normalize()
-      );
+      ).distanceTo(refCenter);
 
-      return {
-        id: storm.stormId,
-        center,
-        swirlQuaternion,
-        scale: localRadius
-      };
+      return { id: storm.stormId, scale: localRadius };
     });
   }, [globe, globeScale, storms]);
 
+  // Store latest storms in a ref so useFrame can read positions without causing re-renders.
+  const stormsRef = useRef(storms);
+  stormsRef.current = storms;
+
+  // Imperatively update container positions + swirl rotations every frame.
   useFrame((state) => {
     const baseRotation = state.clock.elapsedTime * STORM_SWIRL_ROTATION_SPEED;
-    primarySwirlRefs.current.forEach((group, index) => {
-      if (!group) {
-        return;
-      }
+    const currentStorms = stormsRef.current;
 
+    currentStorms.forEach((storm, index) => {
+      const container = containerRefs.current[index];
+      if (!container) return;
+
+      const centerCoords = globe.getCoords(storm.lat, storm.lon, 0.009);
+      container.position.set(
+        centerCoords.x * globeScale,
+        centerCoords.y * globeScale,
+        centerCoords.z * globeScale
+      );
+      const normal = container.position.clone().normalize();
+      container.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+    });
+
+    primarySwirlRefs.current.forEach((group, index) => {
+      if (!group) return;
       group.rotation.z = baseRotation + index * 0.32;
     });
 
     secondarySwirlRefs.current.forEach((group, index) => {
-      if (!group) {
-        return;
-      }
-
+      if (!group) return;
       group.rotation.z = -baseRotation * 0.72 - index * 0.18;
     });
   });
@@ -535,12 +544,11 @@ function StormFootprints({
 
   return (
     <group>
-      {stormTransforms.map((stormTransform, index) => (
-        <group key={stormTransform.id}>
+      {stormScales.map((stormEntry, index) => (
+        <group key={stormEntry.id}>
           <group
-            position={stormTransform.center}
-            quaternion={stormTransform.swirlQuaternion}
-            scale={stormTransform.scale}
+            ref={(node) => { containerRefs.current[index] = node; }}
+            scale={stormEntry.scale}
           >
             <mesh geometry={sharedAssets.outerFill} material={sharedAssets.fillMaterial} renderOrder={3} />
             <lineLoop geometry={sharedAssets.outline} material={sharedAssets.outlineMaterial} renderOrder={4} />

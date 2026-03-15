@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchMarkets, speakOracle } from "./api";
@@ -44,6 +44,11 @@ import {
   globeLoadStageMeta,
   globeLoadStageOrder
 } from "./components/globeBoot";
+
+/** Interval (ms) between storm snapshot recomputations. Storms are physics-heavy; 300ms is visually smooth. */
+const STORM_TICK_INTERVAL_MS = 300;
+/** Minimum interval (ms) between flight state React commits (rAF runs faster, but we throttle state pushes). */
+const FLIGHT_COMMIT_INTERVAL_MS = 50;
 
 const GlobeScene = lazy(() => import("./components/GlobeScene"));
 
@@ -143,8 +148,7 @@ function App() {
   const [isGlobeMounted, setIsGlobeMounted] = useState(false);
   const [isAppInteractive, setIsAppInteractive] = useState(false);
   const [loadStage, setLoadStage] = useState<GlobeLoadStage>("shell");
-  const [simulationMs, setSimulationMs] = useState(0);
-  const [stormSimulationMs, setStormSimulationMs] = useState(0);
+
   const [gameTick, setGameTick] = useState(0);
   const prevSignalsRef = useRef<Record<string, EnvironmentalSignal>>({});
   const portfolioHistoryRef = useRef<number[]>([]);
@@ -152,6 +156,10 @@ function App() {
   const [liveSignals, setLiveSignals] = useState<EnvironmentalSignal[]>(() =>
     createFallbackSignals()
   );
+
+  // Storm snapshots are now updated on a coarser cadence (STORM_TICK_INTERVAL_MS) to avoid
+  // recomputing expensive physics 30×/sec.  A simple counter bumps React state on each storm tick.
+  const [stormTick, setStormTick] = useState(0);
 
   const {
     selectedAssetId,
@@ -179,6 +187,8 @@ function App() {
   const isOracleSpeakingRef = useRef(false);
   const speakPendingRef = useRef(false);
   const simulationStartRef = useRef<number | null>(null);
+  /** Current simulation elapsed ms — written every rAF frame, read by storm tick & flight logic. NOT React state. */
+  const simulationMsRef = useRef(0);
   const liveSignalsRef = useRef<EnvironmentalSignal[]>(liveSignals);
   const stormSnapshotsRef = useRef<StormSnapshot[]>([]);
   const latestOracleContextRef = useRef({
@@ -312,12 +322,20 @@ function App() {
 
   const baseTickers = marketsQuery.data?.tickers ?? [];
   const stormSystems = useMemo(() => createStormSystems(stormSeed), [stormSeed]);
+
+  // Storm snapshots are recomputed on each stormTick (~every STORM_TICK_INTERVAL_MS).
+  // The stormTick counter is bumped inside the rAF loop so we avoid setting simulationMs as state.
   const stormSnapshots = useMemo(
-    () => buildStormSnapshots(stormSystems, stormSimulationMs),
-    [stormSystems, stormSimulationMs]
+    () => {
+      const snaps = buildStormSnapshots(stormSystems, simulationMsRef.current);
+      stormSnapshotsRef.current = snaps;
+      return snaps;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stormSystems, stormTick]
   );
   const blockedCityIds = useMemo(() => getStormBlockedCityIds(stormSnapshots), [stormSnapshots]);
-  const blockedCityKey = useMemo(() => [...blockedCityIds].sort().join(","), [blockedCityIds]);
+  const blockedCityIdsArray = useMemo(() => [...blockedCityIds], [blockedCityIds]);
   const scenarioPatch = useMemo(
     () => buildScenarioPatch(focusedCityId, scenario),
     [focusedCityId, scenario]
@@ -397,16 +415,12 @@ function App() {
   }, [liveSignals]);
 
   useEffect(() => {
-    stormSnapshotsRef.current = stormSnapshots;
-  }, [stormSnapshots]);
-
-  useEffect(() => {
     latestOracleContextRef.current = {
       signals,
       holdings,
       prices,
       cash,
-      blockedCityIds: [...blockedCityIds],
+      blockedCityIds: blockedCityIdsArray,
       currentCityId,
       focusedCityId,
       flight,
@@ -414,10 +428,15 @@ function App() {
     };
   }, [baseTickers, blockedCityIds, cash, currentCityId, flight, focusedCityId, holdings, prices, signals]);
 
+  // ── Main rAF loop ───────────────────────────────────────────────────────────
+  // Updates simulationMsRef every frame (cheap — no React state).
+  // Bumps stormTick counter every STORM_TICK_INTERVAL_MS to trigger storm recomputation.
+  // Advances flight progress every frame, but only commits to React state when
+  // a meaningful threshold is crossed (FLIGHT_COMMIT_INTERVAL_MS).
   useEffect(() => {
     let animationFrameId = 0;
-    let lastCommittedMs = -1000;
-    let lastStormCommittedMs = -1000;
+    let lastStormCommitMs = 0;
+    let lastFlightCommitMs = 0;
 
     const tick = (now: number) => {
       if (simulationStartRef.current === null) {
@@ -425,14 +444,22 @@ function App() {
       }
 
       const elapsedMs = now - simulationStartRef.current;
-      if (elapsedMs - lastCommittedMs >= 33) {
-        setSimulationMs(elapsedMs);
-        lastCommittedMs = elapsedMs;
+      simulationMsRef.current = elapsedMs;
+
+      // ── Storm tick (coarse, ~3-4× per second) ──────────────────────────
+      if (elapsedMs - lastStormCommitMs >= STORM_TICK_INTERVAL_MS) {
+        lastStormCommitMs = elapsedMs;
+        setStormTick((v) => v + 1);
       }
 
-      if (elapsedMs - lastStormCommittedMs >= 50) {
-        setStormSimulationMs(elapsedMs);
-        lastStormCommittedMs = elapsedMs;
+      // ── Flight progress (runs every frame via refs, commits throttled) ─
+      const activeFlight = useAppStore.getState().flight;
+      if (activeFlight) {
+        const deltaMs = Math.max(0, now - activeFlight.lastUpdatedAtMs);
+        if (deltaMs > 0 && now - lastFlightCommitMs >= FLIGHT_COMMIT_INTERVAL_MS) {
+          lastFlightCommitMs = now;
+          advanceFlightFrame(activeFlight, now, deltaMs);
+        }
       }
 
       animationFrameId = window.requestAnimationFrame(tick);
@@ -513,18 +540,8 @@ function App() {
     speakPendingRef.current = speakMutation.isPending;
   }, [speakMutation.isPending]);
 
-  useEffect(() => {
-    const activeFlight = useAppStore.getState().flight;
-    if (!activeFlight) {
-      return;
-    }
-
-    const nowMs = performance.now();
-    const deltaMs = Math.max(0, nowMs - activeFlight.lastUpdatedAtMs);
-    if (deltaMs === 0) {
-      return;
-    }
-
+  // ── Flight advancement (called from rAF, commits state changes) ────────────
+  const advanceFlightFrame = useCallback((activeFlight: FlightState, nowMs: number, deltaMs: number) => {
     if (activeFlight.isReturningHome) {
       const nextProgress = Math.min(1, activeFlight.progress + deltaMs / activeFlight.durationMs);
 
@@ -572,9 +589,10 @@ function App() {
       return;
     }
 
+    const currentSnapshots = stormSnapshotsRef.current;
     const holdProgress = findFlightHoldProgress(
       activeFlight.path,
-      stormSnapshots,
+      currentSnapshots,
       activeFlight.progress
     );
     const nextProgress = Math.min(1, activeFlight.progress + deltaMs / activeFlight.durationMs);
@@ -611,7 +629,7 @@ function App() {
       remainingMs: Math.max(0, activeFlight.durationMs * (1 - nextProgress)),
       lastUpdatedAtMs: nowMs
     });
-  }, [setCurrentCity, setFeed, setFlight, setFocusedCity, simulationMs, stormSnapshots]);
+  }, [setCurrentCity, setFlight, setFocusedCity]);
 
   useEffect(() => {
     if (!baseTickers.length || !signals.length) {
@@ -885,7 +903,7 @@ function App() {
                     signals={signals}
                     rankings={scenarioSnapshot?.rankings ?? []}
                     storms={stormSnapshots}
-                    blockedCityIds={[...blockedCityIds]}
+                    blockedCityIds={blockedCityIdsArray}
                     flight={flight}
                     onSelectCity={setFocusedCity}
                     onStartFlight={handleStartFlight}
@@ -1018,7 +1036,7 @@ function App() {
             selectedAssetId={selectedAssetId}
             focusedCityId={focusedCityId}
             currentCityId={currentCityId}
-            blockedCityIds={[...blockedCityIds]}
+            blockedCityIds={blockedCityIdsArray}
             flight={flight}
             onSelectAsset={setAsset}
           />
