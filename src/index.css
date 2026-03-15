@@ -885,40 +885,6 @@ button {
   background: rgba(255, 255, 255, 0.025);
 }
 
-.plane-marker {
-  min-width: 3rem;
-  padding: 0.28rem 0.45rem;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 244, 168, 0.22);
-  background: rgba(255, 244, 168, 0.14);
-  color: #fff4a8;
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.62rem;
-  text-align: center;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  box-shadow:
-    0 8px 18px rgba(0, 0, 0, 0.3),
-    0 0 24px rgba(255, 244, 168, 0.1);
-}
-
-.plane-marker.holding {
-  border-color: rgba(180, 251, 255, 0.24);
-  background: rgba(180, 251, 255, 0.16);
-  color: #b4fbff;
-  animation: holding-spin 1.6s linear infinite;
-}
-
-@keyframes holding-spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .city-fly-popup {
   min-width: 3rem;
   padding: 0.3rem 0.6rem;

@@ -13,7 +13,7 @@ import type {
   RankedCity,
   StormSnapshot
 } from "../../shared/types";
-import { interpolateGreatCirclePoint } from "../../shared/simulation";
+import { getPathPointAtProgress, interpolateGreatCirclePoint } from "../../shared/simulation";
 import {
   getGlobeCanvasDpr,
   scheduleGlobeDetailStages,
@@ -106,6 +106,10 @@ const STORM_FOOTPRINT_OUTLINE_OPACITY = 0.48;
 const STORM_SWIRL_PRIMARY_OPACITY = 0.3;
 const STORM_SWIRL_SECONDARY_OPACITY = 0.17;
 const STORM_VISUAL_INTERPOLATION_MS = 300;
+const FLIGHT_ARC_ALTITUDE = 0.22;
+const FLIGHT_BANK_LIMIT_RAD = Math.PI / 7.5;
+const FLIGHT_BANK_SCALE = 1.6;
+const FLIGHT_MODEL_SCALE = 0.078;
 const globeTopology = countriesTopology as Record<string, unknown> & {
   objects: {
     countries: unknown;
@@ -150,6 +154,19 @@ function clamp(value: number, min: number, max: number) {
 
 function lerp(start: number, end: number, progress: number) {
   return start + (end - start) * progress;
+}
+
+function latLonToCartesian(lat: number, lon: number, altitude = 0) {
+  const radius = baseRadius * (1 + altitude);
+  const latRad = toRadians(lat);
+  const lonRad = toRadians(lon);
+  const cosLat = Math.cos(latRad);
+
+  return new THREE.Vector3(
+    radius * cosLat * Math.sin(lonRad),
+    radius * Math.sin(latRad),
+    radius * cosLat * Math.cos(lonRad)
+  );
 }
 
 function destinationPoint(
@@ -309,7 +326,7 @@ export function buildArcData(
         endLat: flight.endLat,
         endLng: flight.endLon,
         color: [toRgba("#fff4a8", 0.92), toRgba("#fff4a8", 0.16)],
-        altitude: 0.22,
+        altitude: FLIGHT_ARC_ALTITUDE,
         dashLength: 0.42,
         dashGap: 0.28,
         dashInitialGap: 0,
@@ -319,6 +336,124 @@ export function buildArcData(
     : [];
 
   return flightArc;
+}
+
+export function getFlightProgress(flight: FlightState) {
+  if (flight.phase === "holding" && typeof flight.holdProgress === "number") {
+    return clamp(flight.holdProgress, 0, 1);
+  }
+
+  return clamp(flight.progress, 0, 1);
+}
+
+export function getFlightArcAltitude(progress: number) {
+  const safeProgress = clamp(progress, 0, 1);
+  return Math.sin(safeProgress * Math.PI) * FLIGHT_ARC_ALTITUDE;
+}
+
+type FlightPose = {
+  position: THREE.Vector3;
+  quaternion: THREE.Quaternion;
+  progress: number;
+  bankRad: number;
+};
+
+const FLIGHT_FALLBACK_FORWARD = new THREE.Vector3(0, 0, 1);
+const FLIGHT_FALLBACK_UP = new THREE.Vector3(0, 1, 0);
+
+export function computeFlightPose(flight: FlightState): FlightPose | null {
+  const progress = getFlightProgress(flight);
+  const altitude = getFlightArcAltitude(progress);
+  const path = flight.path;
+
+  if (path.length === 0) {
+    const position = latLonToCartesian(flight.currentLat, flight.currentLon, altitude);
+    const up = position.clone().normalize();
+    const fallbackRight = new THREE.Vector3().crossVectors(up, FLIGHT_FALLBACK_FORWARD);
+    if (fallbackRight.lengthSq() < 1e-6) {
+      fallbackRight.set(1, 0, 0);
+    } else {
+      fallbackRight.normalize();
+    }
+    const correctedUp = new THREE.Vector3().crossVectors(FLIGHT_FALLBACK_FORWARD, fallbackRight).normalize();
+    const basis = new THREE.Matrix4().makeBasis(fallbackRight, correctedUp, FLIGHT_FALLBACK_FORWARD.clone());
+    const quaternion = new THREE.Quaternion().setFromRotationMatrix(basis);
+    return { position, quaternion, progress, bankRad: 0 };
+  }
+
+  const sampleStep = path.length > 1 ? 1 / (path.length - 1) : 0.01;
+  const sampleOffset = Math.max(sampleStep, 0.008);
+  const previousProgress = clamp(progress - sampleOffset, 0, 1);
+  const nextProgress = clamp(progress + sampleOffset, 0, 1);
+  const previousPoint = getPathPointAtProgress(path, previousProgress);
+  const currentPoint = getPathPointAtProgress(path, progress);
+  const nextPoint = getPathPointAtProgress(path, nextProgress);
+  const previousPosition = latLonToCartesian(
+    previousPoint.lat,
+    previousPoint.lon,
+    getFlightArcAltitude(previousProgress)
+  );
+  const currentPosition = latLonToCartesian(
+    currentPoint.lat,
+    currentPoint.lon,
+    altitude
+  );
+  const nextPosition = latLonToCartesian(
+    nextPoint.lat,
+    nextPoint.lon,
+    getFlightArcAltitude(nextProgress)
+  );
+
+  let forward = nextPosition.clone().sub(previousPosition);
+  if (forward.lengthSq() < 1e-8) {
+    forward = currentPosition.clone().sub(previousPosition);
+  }
+  if (forward.lengthSq() < 1e-8) {
+    forward = nextPosition.clone().sub(currentPosition);
+  }
+  if (forward.lengthSq() < 1e-8) {
+    forward.copy(FLIGHT_FALLBACK_FORWARD);
+  } else {
+    forward.normalize();
+  }
+
+  const up = currentPosition.clone().normalize();
+  let right = new THREE.Vector3().crossVectors(up, forward);
+  if (right.lengthSq() < 1e-8) {
+    right = new THREE.Vector3().crossVectors(FLIGHT_FALLBACK_UP, forward);
+  }
+  if (right.lengthSq() < 1e-8) {
+    right = new THREE.Vector3(1, 0, 0);
+  } else {
+    right.normalize();
+  }
+  const correctedUp = new THREE.Vector3().crossVectors(forward, right).normalize();
+
+  const previousDirection = currentPosition.clone().sub(previousPosition).normalize();
+  const nextDirection = nextPosition.clone().sub(currentPosition).normalize();
+  let bankRad = 0;
+
+  if (previousDirection.lengthSq() > 1e-8 && nextDirection.lengthSq() > 1e-8) {
+    const turnCross = new THREE.Vector3().crossVectors(previousDirection, nextDirection);
+    const turnSin = THREE.MathUtils.clamp(turnCross.dot(correctedUp), -1, 1);
+    const turnCos = THREE.MathUtils.clamp(previousDirection.dot(nextDirection), -1, 1);
+    const turnAngle = Math.atan2(turnSin, turnCos);
+    bankRad = clamp(turnAngle * FLIGHT_BANK_SCALE, -FLIGHT_BANK_LIMIT_RAD, FLIGHT_BANK_LIMIT_RAD);
+  }
+
+  const basis = new THREE.Matrix4().makeBasis(right, correctedUp, forward);
+  const quaternion = new THREE.Quaternion().setFromRotationMatrix(basis);
+
+  if (Math.abs(bankRad) > 1e-4) {
+    quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(forward, -bankRad));
+  }
+
+  return {
+    position: currentPosition,
+    quaternion,
+    progress,
+    bankRad
+  };
 }
 
 function buildCityLabels(focusedCityId: string, currentCityId: string, blockedCityIds: string[]) {
@@ -625,33 +760,90 @@ function StormFootprints({
   );
 }
 
-function FlightMarker({
-  globe,
-  flight
-}: {
-  globe: ThreeGlobe;
-  flight: FlightState | null;
-}) {
-  const globeScale = useMemo(() => baseRadius / globe.getGlobeRadius(), [globe]);
+function FlightPlane({ flight }: { flight: FlightState | null }) {
+  const planeRef = useRef<THREE.Group | null>(null);
+  const lastPoseRef = useRef<FlightPose | null>(null);
 
-  if (!flight) {
-    return null;
-  }
+  const sharedAssets = useMemo(() => {
+    const fuselage = new THREE.CapsuleGeometry(0.09, 0.75, 3, 10);
+    fuselage.rotateX(Math.PI / 2);
+    const wing = new THREE.BoxGeometry(0.88, 0.028, 0.14);
+    wing.translate(0, 0, -0.03);
+    const tailplane = new THREE.BoxGeometry(0.28, 0.02, 0.08);
+    tailplane.translate(0, 0.035, -0.37);
+    const fin = new THREE.BoxGeometry(0.03, 0.16, 0.12);
+    fin.translate(0, 0.1, -0.37);
+    const nose = new THREE.ConeGeometry(0.07, 0.18, 10);
+    nose.rotateX(-Math.PI / 2);
+    nose.translate(0, 0, 0.47);
+    const material = new THREE.MeshStandardMaterial({
+      color: "#f0f4f7",
+      emissive: new THREE.Color("#9de9ff"),
+      emissiveIntensity: 0.1,
+      metalness: 0.18,
+      roughness: 0.66
+    });
+    const accentMaterial = new THREE.MeshStandardMaterial({
+      color: "#8ceaff",
+      emissive: new THREE.Color("#8ceaff"),
+      emissiveIntensity: 0.24,
+      metalness: 0.12,
+      roughness: 0.44
+    });
 
-  const coords = globe.getCoords(flight.currentLat, flight.currentLon, 0.21);
-  const position = new THREE.Vector3(
-    coords.x * globeScale,
-    coords.y * globeScale,
-    coords.z * globeScale
-  );
+    return {
+      fuselage,
+      wing,
+      tailplane,
+      fin,
+      nose,
+      material,
+      accentMaterial
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      sharedAssets.fuselage.dispose();
+      sharedAssets.wing.dispose();
+      sharedAssets.tailplane.dispose();
+      sharedAssets.fin.dispose();
+      sharedAssets.nose.dispose();
+      sharedAssets.material.dispose();
+      sharedAssets.accentMaterial.dispose();
+    };
+  }, [sharedAssets]);
+
+  useFrame(() => {
+    const plane = planeRef.current;
+    if (!plane) {
+      return;
+    }
+
+    if (!flight) {
+      plane.visible = false;
+      return;
+    }
+
+    const pose = computeFlightPose(flight) ?? lastPoseRef.current;
+    if (!pose) {
+      plane.visible = false;
+      return;
+    }
+
+    lastPoseRef.current = pose;
+    plane.visible = true;
+    plane.position.copy(pose.position);
+    plane.quaternion.copy(pose.quaternion);
+  });
 
   return (
-    <group position={position}>
-      <Html center distanceFactor={11} sprite>
-        <div className={flight.phase === "holding" ? "plane-marker holding" : "plane-marker"}>
-          {flight.phase === "holding" ? "HOLD" : flight.isReturningHome ? "RTN" : "FLY"}
-        </div>
-      </Html>
+    <group ref={planeRef} scale={FLIGHT_MODEL_SCALE}>
+      <mesh geometry={sharedAssets.fuselage} material={sharedAssets.material} castShadow={false} receiveShadow={false} />
+      <mesh geometry={sharedAssets.wing} material={sharedAssets.material} castShadow={false} receiveShadow={false} />
+      <mesh geometry={sharedAssets.tailplane} material={sharedAssets.material} castShadow={false} receiveShadow={false} />
+      <mesh geometry={sharedAssets.fin} material={sharedAssets.accentMaterial} castShadow={false} receiveShadow={false} />
+      <mesh geometry={sharedAssets.nose} material={sharedAssets.accentMaterial} castShadow={false} receiveShadow={false} />
     </group>
   );
 }
@@ -866,7 +1058,7 @@ function GlobeObject(props: GlobeSceneProps & { detailStage: GlobeRenderStage })
         onStartFlight={props.onStartFlight}
       />
       {showSignalLayers ? <StormFootprints globe={globe} storms={visualStorms} /> : null}
-      <FlightMarker globe={globe} flight={visualFlight} />
+      <FlightPlane flight={visualFlight} />
     </>
   );
 }

@@ -92,4 +92,37 @@ describe("terra arbitrage api", () => {
     expect(speech.severity).toBe("alert");
     expect(Date.parse(speech.cooldownUntil) - Date.now()).toBeGreaterThanOrEqual(11_000);
   });
+
+  it("serializes concurrent oracle speech requests so only one is generated at a time", async () => {
+    let releaseSpeak: (() => void) | undefined;
+    const provider = createMockProvider({
+      async speak() {
+        await new Promise<void>((resolve) => {
+          releaseSpeak = resolve;
+        });
+        return "data:audio/mpeg;base64,ZmFrZQ==";
+      }
+    });
+
+    const firstSpeechPromise = resolveOracleSpeech(provider, {
+      text: "Tokyo just turned against your holding.",
+      severity: "alert"
+    });
+
+    const skippedSpeech = await resolveOracleSpeech(provider, {
+      text: "Abidjan just opened a buy window.",
+      severity: "watch"
+    });
+
+    expect(skippedSpeech).toMatchObject({
+      skipped: true
+    });
+
+    expect(releaseSpeak).toBeTypeOf("function");
+    releaseSpeak!();
+    const firstSpeech = await firstSpeechPromise;
+
+    expect(firstSpeech.text).toBe("Tokyo just turned against your holding.");
+    expect(firstSpeech.audioUrl).toContain("data:audio");
+  });
 });

@@ -162,6 +162,86 @@ export const cities: CityProfile[] = [
     }
   },
   {
+    id: "marrakech",
+    name: "Marrakech",
+    country: "Morocco",
+    region: "North Africa",
+    lat: 31.6295,
+    lon: -7.9811,
+    timezone: "Africa/Casablanca",
+    accentColor: "#f0a85c",
+    tags: ["desert fringe", "dust", "heat pulses"],
+    baselines: {
+      humidity: 34,
+      rain: 0.7,
+      temperature: 31,
+      wind: 11,
+      airQuality: 69,
+      soilMoisture: 22,
+      soilPh: 7.6
+    }
+  },
+  {
+    id: "helsinki",
+    name: "Helsinki",
+    country: "Finland",
+    region: "Nordics",
+    lat: 60.1699,
+    lon: 24.9384,
+    timezone: "Europe/Helsinki",
+    accentColor: "#9fd2ff",
+    tags: ["northern cold", "clean air", "low-light demand"],
+    baselines: {
+      humidity: 72,
+      rain: 2.6,
+      temperature: 8,
+      wind: 16,
+      airQuality: 12,
+      soilMoisture: 64,
+      soilPh: 6.4
+    }
+  },
+  {
+    id: "mumbai",
+    name: "Mumbai",
+    country: "India",
+    region: "South Asia",
+    lat: 19.076,
+    lon: 72.8777,
+    timezone: "Asia/Kolkata",
+    accentColor: "#ff8f78",
+    tags: ["monsoon", "humidity wall", "coastal churn"],
+    baselines: {
+      humidity: 83,
+      rain: 9,
+      temperature: 31,
+      wind: 12,
+      airQuality: 81,
+      soilMoisture: 74,
+      soilPh: 6
+    }
+  },
+  {
+    id: "samarkand",
+    name: "Samarkand",
+    country: "Uzbekistan",
+    region: "Central Asia",
+    lat: 39.6542,
+    lon: 66.9597,
+    timezone: "Asia/Samarkand",
+    accentColor: "#d9c17d",
+    tags: ["continental dry", "wind corridor", "dust basin"],
+    baselines: {
+      humidity: 39,
+      rain: 1.1,
+      temperature: 26,
+      wind: 18,
+      airQuality: 61,
+      soilMoisture: 27,
+      soilPh: 7.4
+    }
+  },
+  {
     id: "santiago",
     name: "Santiago",
     country: "Chile",
@@ -179,6 +259,26 @@ export const cities: CityProfile[] = [
       airQuality: 63,
       soilMoisture: 29,
       soilPh: 7.1
+    }
+  },
+  {
+    id: "manaus",
+    name: "Manaus",
+    country: "Brazil",
+    region: "Amazon Basin",
+    lat: -3.119,
+    lon: -60.0217,
+    timezone: "America/Manaus",
+    accentColor: "#74d78b",
+    tags: ["rainforest", "river humidity", "flood pulse"],
+    baselines: {
+      humidity: 88,
+      rain: 13,
+      temperature: 30,
+      wind: 6,
+      airQuality: 23,
+      soilMoisture: 82,
+      soilPh: 5.5
     }
   },
   {
@@ -202,6 +302,26 @@ export const cities: CityProfile[] = [
     }
   },
   {
+    id: "honolulu",
+    name: "Honolulu",
+    country: "United States",
+    region: "Central Pacific",
+    lat: 21.3069,
+    lon: -157.8583,
+    timezone: "Pacific/Honolulu",
+    accentColor: "#7de3ff",
+    tags: ["trade winds", "marine air", "island volatility"],
+    baselines: {
+      humidity: 70,
+      rain: 3.5,
+      temperature: 28,
+      wind: 21,
+      airQuality: 14,
+      soilMoisture: 47,
+      soilPh: 6.7
+    }
+  },
+  {
     id: "sydney",
     name: "Sydney",
     country: "Australia",
@@ -219,6 +339,26 @@ export const cities: CityProfile[] = [
       airQuality: 27,
       soilMoisture: 49,
       soilPh: 6.6
+    }
+  },
+  {
+    id: "capeTown",
+    name: "Cape Town",
+    country: "South Africa",
+    region: "Southern Africa",
+    lat: -33.9249,
+    lon: 18.4241,
+    timezone: "Africa/Johannesburg",
+    accentColor: "#9de6d1",
+    tags: ["cape winds", "cold current", "dry-summer spread"],
+    baselines: {
+      humidity: 59,
+      rain: 2.2,
+      temperature: 22,
+      wind: 24,
+      airQuality: 28,
+      soilMoisture: 38,
+      soilPh: 6.8
     }
   }
 ];

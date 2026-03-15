@@ -1,5 +1,6 @@
 import cors from "cors";
 import dotenv from "dotenv";
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import express from "express";
 import {
   defaultAssetId,
@@ -19,11 +20,37 @@ import type {
 
 dotenv.config();
 
+const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID ?? "eleven_turbo_v2_5";
+const ORACLE_SPEECH_FETCH_LOCK_MS = 15_000;
+const ORACLE_SPEECH_MIN_COOLDOWN_MS = 12_000;
+const ORACLE_SPEECH_MAX_COOLDOWN_MS = 45_000;
+
 type DataProvider = {
   getSignals: () => Promise<SignalsResponse>;
   getMarkets: () => Promise<MarketsResponse>;
   speak: (text: string) => Promise<string | null>;
 };
+
+function sanitizeOracleSpeechText(text: string) {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/[()[\]{}*_`~]/g, "")
+    .replace(/\s+([,.;!?])/g, "$1")
+    .replace(/([!?.,]){2,}/g, "$1")
+    .trim()
+    .slice(0, 220);
+}
+
+function estimateOracleSpeechCooldownMs(text: string) {
+  const sanitized = sanitizeOracleSpeechText(text);
+  const words = sanitized.length === 0 ? 0 : sanitized.split(/\s+/).length;
+  const estimatedFromWords = words * 420;
+  const estimatedFromChars = sanitized.length * 55;
+  return Math.max(
+    ORACLE_SPEECH_MIN_COOLDOWN_MS,
+    Math.min(ORACLE_SPEECH_MAX_COOLDOWN_MS, Math.max(estimatedFromWords, estimatedFromChars) + 2_000)
+  );
+}
 
 async function elevenLabsSpeak(text: string) {
   const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -34,29 +61,26 @@ async function elevenLabsSpeak(text: string) {
   }
 
   try {
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "xi-api-key": apiKey
-      },
-      body: JSON.stringify({
-        text,
-        model_id: "eleven_multilingual_v2",
-        voice_settings: {
-          stability: 0.33,
-          similarity_boost: 0.58,
-          style: 0.84,
-          use_speaker_boost: true
-        }
-      })
+    const client = new ElevenLabsClient({
+      apiKey
+    });
+    const audioStream = await client.textToSpeech.convert(voiceId, {
+      text: sanitizeOracleSpeechText(text),
+      modelId: ELEVENLABS_MODEL_ID,
+      outputFormat: "mp3_44100_128",
+      voiceSettings: {
+        stability: 0.62,
+        similarityBoost: 0.78,
+        style: 0.14,
+        useSpeakerBoost: true
+      }
     });
 
-    if (!response.ok) {
-      throw new Error(`ElevenLabs failed with ${response.status}`);
+    const arrayBuffer = await new Response(audioStream).arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    if (buffer.byteLength === 0) {
+      return null;
     }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
     return `data:audio/mpeg;base64,${buffer.toString("base64")}`;
   } catch {
     return null;
@@ -133,7 +157,7 @@ export async function resolveOracleSpeech(
   body: OracleSpeakRequest
 ) {
   const now = Date.now();
-  const text = body.text?.trim();
+  const text = sanitizeOracleSpeechText(body.text ?? "");
 
   if (!text) {
     throw new Error("text is required");
@@ -149,7 +173,7 @@ export async function resolveOracleSpeech(
   }
 
   // 2. Lock immediately so concurrent requests in the same millisecond don't overlap
-  globalAudioCooldown = now + 15_000; // Temporary 15s lock while fetching
+  globalAudioCooldown = now + ORACLE_SPEECH_FETCH_LOCK_MS;
 
   try {
     let audioUrl: string | null = null;
@@ -159,8 +183,7 @@ export async function resolveOracleSpeech(
       audioUrl = null;
     }
 
-    // 3. Extend the lock so the oracle finishes a single message before the next one starts.
-    globalAudioCooldown = Date.now() + 20_000;
+    globalAudioCooldown = Date.now() + estimateOracleSpeechCooldownMs(text);
 
     return {
       text,

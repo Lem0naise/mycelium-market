@@ -184,9 +184,11 @@ function App() {
 
   const speakMutation = useMutation({ mutationFn: speakOracle });
   const audioContextRef = useRef<AudioContext | null>(null);
+  const htmlAudioRef = useRef<HTMLAudioElement | null>(null);
   const oracleFlashTimeoutRef = useRef<number | null>(null);
   const isOracleSpeakingRef = useRef(false);
   const speakPendingRef = useRef(false);
+  const activeSpeechNotificationIdRef = useRef<string | null>(null);
   const simulationStartRef = useRef<number | null>(null);
   /** Current simulation elapsed ms — written every rAF frame, read by storm tick & flight logic. NOT React state. */
   const simulationMsRef = useRef(0);
@@ -220,29 +222,39 @@ function App() {
       !audioEnabled ||
       isOracleSpeakingRef.current ||
       speakPendingRef.current ||
+      activeSpeechNotificationIdRef.current === notification.id ||
       Date.now() < nextOracleSpeechAtRef.current
     ) {
       return;
     }
 
-    speakMutation.mutate(
-      { text: notification.speakText, severity: notification.severity },
-      {
-        onSuccess: async (response: OracleSpeakResponse) => {
-          syncOracleSpeechCooldown(response.cooldownUntil);
-          if (response.skipped) {
-            return;
-          }
+    activeSpeechNotificationIdRef.current = notification.id;
+    speakPendingRef.current = true;
 
-          lastSpokenNotificationIdRef.current = notification.id;
-          markFeedSpoken(notification.id, new Date().toISOString());
-          pulseOracleFlash();
-          if (response.audioUrl) {
-            await playBase64Audio(response.audioUrl);
-          }
+    void speakMutation
+      .mutateAsync({ text: notification.speakText, severity: notification.severity })
+      .then(async (response: OracleSpeakResponse) => {
+        syncOracleSpeechCooldown(response.cooldownUntil);
+        if (response.skipped) {
+          return;
         }
-      }
-    );
+
+        lastSpokenNotificationIdRef.current = notification.id;
+        markFeedSpoken(notification.id, new Date().toISOString());
+        pulseOracleFlash();
+        if (response.audioUrl) {
+          await playBase64Audio(response.audioUrl);
+        }
+      })
+      .catch((error) => {
+        console.error("Oracle speech request failed", error);
+      })
+      .finally(() => {
+        if (activeSpeechNotificationIdRef.current === notification.id) {
+          activeSpeechNotificationIdRef.current = null;
+        }
+        speakPendingRef.current = false;
+      });
   };
 
   const unlockAudioContext = () => {
@@ -272,10 +284,27 @@ function App() {
     try {
       const ctx = audioContextRef.current;
       if (!ctx) {
-        const audio = new Audio(dataUrl);
-        audio.onplay = () => setIsOracleSpeaking(true);
-        audio.onended = () => setIsOracleSpeaking(false);
-        await audio.play();
+        if (!htmlAudioRef.current) {
+          htmlAudioRef.current = new Audio();
+        }
+
+        const audio = htmlAudioRef.current;
+        audio.pause();
+        audio.src = dataUrl;
+
+        await new Promise<void>((resolve, reject) => {
+          audio.onplay = () => setIsOracleSpeaking(true);
+          audio.onended = () => {
+            setIsOracleSpeaking(false);
+            resolve();
+          };
+          audio.onerror = () => {
+            setIsOracleSpeaking(false);
+            reject(new Error("HTML audio playback failed"));
+          };
+
+          audio.play().catch(reject);
+        });
         return;
       }
 
@@ -291,13 +320,18 @@ function App() {
       }
 
       const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(ctx.destination);
-      source.onended = () => setIsOracleSpeaking(false);
+      await new Promise<void>((resolve) => {
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(ctx.destination);
+        source.onended = () => {
+          setIsOracleSpeaking(false);
+          resolve();
+        };
 
-      setIsOracleSpeaking(true);
-      source.start();
+        setIsOracleSpeaking(true);
+        source.start();
+      });
     } catch (error) {
       console.error("Audio playback error", error);
       setIsOracleSpeaking(false);
@@ -321,7 +355,11 @@ function App() {
       setFeed(notifications);
     }
 
-    if (!speakable?.speakText || lastSpokenNotificationIdRef.current === speakable.id) {
+    if (
+      !speakable?.speakText ||
+      lastSpokenNotificationIdRef.current === speakable.id ||
+      activeSpeechNotificationIdRef.current === speakable.id
+    ) {
       return;
     }
 
