@@ -17,10 +17,10 @@ const formatGBPCompact = (value: number) =>
 const categoryLabel: Record<OracleNotification["category"], string> = {
   storm: "Storm",
   driver: "Driver",
-  opportunity: "Buy",
-  access: "Route",
+  opportunity: "Signal",
+  access: "Access",
   flight: "Flight",
-  recovery: "Clear"
+  recovery: "Recovery"
 };
 
 export function FeedPanel({ feed }: FeedPanelProps) {

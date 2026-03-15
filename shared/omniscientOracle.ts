@@ -30,6 +30,7 @@ type OracleOpportunityWatch = {
   triggerActive: boolean;
   triggerDirection: OraclePositionWatch["triggerDirection"];
   accessible: boolean;
+  signalValue: number;
 };
 
 export type OracleWatchState = {
@@ -66,6 +67,7 @@ const STORM_FEED_SHARE_PCT = 10;
 const STORM_CRITICAL_SHARE_PCT = 20;
 const DRIVER_FEED_SHARE_PCT = 4;
 const DELTA_SWING_THRESHOLD = 8;
+const GLOBAL_OPPORTUNITY_LIMIT = 3;
 
 const severityOrder: Severity[] = ["calm", "watch", "alert", "critical"];
 
@@ -108,6 +110,15 @@ function formatSigned(value: number) {
   return `${value >= 0 ? "+" : ""}${round(value, 1)}`;
 }
 
+function toImpliedMovePct(earthDelta: number) {
+  return round(earthDelta * 0.38, 1);
+}
+
+function formatImpliedMove(earthDelta: number) {
+  const movePct = toImpliedMovePct(earthDelta);
+  return `${movePct >= 0 ? "+" : ""}${movePct}%`;
+}
+
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
@@ -124,6 +135,26 @@ function formatShare(value: number) {
 function formatSignalValue(signal: SignalKey, value: number) {
   const meta = signalMeta[signal];
   return `${round(value, 1)}${meta.unit}`;
+}
+
+function capitalize(text: string) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function formatMyceliumReadings(signal: Pick<EnvironmentalSignal, "soilMoisture" | "soilPh" | "humidity">) {
+  return `soil moisture ${formatSignalValue("soilMoisture", signal.soilMoisture)}, pH ${formatSignalValue("soilPh", signal.soilPh)}, humidity ${formatSignalValue("humidity", signal.humidity)}`;
+}
+
+function dedupeNotifications(notifications: OracleNotification[]) {
+  const seen = new Set<string>();
+  return notifications.filter((notification) => {
+    if (seen.has(notification.eventKey)) {
+      return false;
+    }
+
+    seen.add(notification.eventKey);
+    return true;
+  });
 }
 
 function getPrimaryDriverKey(signalWeights: Record<SignalKey, number>) {
@@ -310,7 +341,10 @@ function buildDriverNotification(params: {
 
   const driverLabel = signalMeta[driverKey].label;
   const signalText = formatSignalValue(driverKey, current.signalValue);
+  const driverTitle = capitalize(driverLabel);
   const exposureText = `${formatCurrency(affectedValue)} (${formatShare(affectedPortfolioShare)} of the portfolio)`;
+  const previousMoveText = formatImpliedMove(previous.earthDelta);
+  const currentMoveText = formatImpliedMove(current.earthDelta);
   const crossedNegative = previous.earthDelta >= 0 && current.earthDelta < 0;
   const crossedPositive = previous.earthDelta <= 0 && current.earthDelta > 0;
   const enteredMajorSeverity =
@@ -331,11 +365,11 @@ function buildDriverNotification(params: {
       category: "driver",
       severity,
       title: `${asset.label} softening in ${cityName}`,
-      body: `${driverLabel} flipped against it. Delta ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)} on ${exposureText}.`,
+      body: `${driverTitle} in ${cityName} is now ${signalText}. Implied move shifted from ${previousMoveText} to ${currentMoveText} on ${exposureText}.`,
       speakText:
         severity === "critical"
-          ? `${asset.label} is breaking lower in ${cityName}. ${driverLabel} has turned sharply against it.`
-          : `${asset.label} just weakened in ${cityName}. ${driverLabel} flipped negative there.`,
+          ? `${asset.label} in ${cityName} moved sharply lower. ${driverLabel} is now ${signalText}, and the implied move is ${currentMoveText}.`
+          : `${asset.label} in ${cityName} moved lower. ${driverLabel} is ${signalText}, with an implied move of ${currentMoveText}.`,
       cityIds: [cityId],
       assetIds: [assetId],
       affectedValue,
@@ -352,11 +386,11 @@ function buildDriverNotification(params: {
       category: "driver",
       severity,
       title: `${asset.label} strengthening in ${cityName}`,
-      body: `${driverLabel} turned supportive. Delta ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)} on ${exposureText}.`,
+      body: `${driverTitle} in ${cityName} is now ${signalText}. Implied move shifted from ${previousMoveText} to ${currentMoveText} on ${exposureText}.`,
       speakText:
         severity === "critical"
-          ? `${asset.label} is surging in ${cityName}. ${driverLabel} has turned strongly supportive.`
-          : `${asset.label} just strengthened in ${cityName}. ${driverLabel} flipped in your favour.`,
+          ? `${asset.label} in ${cityName} moved sharply higher. ${driverLabel} is now ${signalText}, and the implied move is ${currentMoveText}.`
+          : `${asset.label} in ${cityName} moved higher. ${driverLabel} is ${signalText}, with an implied move of ${currentMoveText}.`,
       cityIds: [cityId],
       assetIds: [assetId],
       affectedValue,
@@ -377,12 +411,12 @@ function buildDriverNotification(params: {
       category: "driver",
       severity,
       title: `${asset.label} trigger in ${cityName}`,
-      body: `${driverLabel} hit ${signalText}. ${directionText} regime live on ${exposureText}.`,
+      body: `${driverTitle} in ${cityName} reached ${signalText}. ${directionText} trigger state is now live on ${exposureText}.`,
       speakText:
         severity === "critical"
-          ? `${asset.label} has hit a critical ${directionText} trigger in ${cityName}.`
+          ? `${asset.label} in ${cityName} entered a critical ${directionText} trigger with ${driverLabel} at ${signalText}.`
           : severity === "alert"
-            ? `${asset.label} has hit a fresh ${directionText} trigger in ${cityName}.`
+            ? `${asset.label} in ${cityName} entered a ${directionText} trigger with ${driverLabel} at ${signalText}.`
             : null,
       cityIds: [cityId],
       assetIds: [assetId],
@@ -400,10 +434,10 @@ function buildDriverNotification(params: {
       category: "driver",
       severity,
       title: `Sharp repricing in ${cityName}`,
-      body: `${asset.label} repriced on ${driverLabel} at ${signalText}. Delta ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)} on ${exposureText}.`,
+      body: `${asset.label} repriced with ${driverLabel} at ${signalText}. Implied move shifted from ${previousMoveText} to ${currentMoveText} on ${exposureText}.`,
       speakText:
         severityRank(severity) >= severityRank("watch")
-          ? `${asset.label} just repriced in ${cityName}. ${driverLabel} moved hard enough to matter there.`
+          ? `${asset.label} repriced in ${cityName}. ${driverLabel} is ${signalText}, and the implied move is now ${currentMoveText}.`
           : null,
       cityIds: [cityId],
       assetIds: [assetId],
@@ -420,8 +454,8 @@ function buildDriverNotification(params: {
       category: "recovery",
       severity: "calm",
       title: `${asset.label} steadied in ${cityName}`,
-      body: `${driverLabel} cooled off. Delta eased from ${formatSigned(previous.earthDelta)} to ${formatSigned(current.earthDelta)}.`,
-      speakText: `${asset.label} has steadied in ${cityName}. ${driverLabel} is no longer in an extreme regime there.`,
+      body: `${driverTitle} in ${cityName} eased to ${signalText}. Implied move settled from ${previousMoveText} to ${currentMoveText}.`,
+      speakText: `${asset.label} steadied in ${cityName}. ${driverLabel} is ${signalText}, and the implied move is back to ${currentMoveText}.`,
       cityIds: [cityId],
       assetIds: [assetId],
       affectedValue,
@@ -453,6 +487,8 @@ function buildOpportunityNotification(params: {
   }
 
   const driverLabel = signalMeta[driverKey].label;
+  const driverTitle = capitalize(driverLabel);
+  const signalText = formatSignalValue(driverKey, current.signalValue);
   const eventKey = `opportunity-${cityId}-${assetId}`;
   const enteredSupport =
     !previous ||
@@ -472,20 +508,30 @@ function buildOpportunityNotification(params: {
         ? "alert"
         : "watch";
   const triggerText =
-    current.triggerActive && current.triggerDirection === "upside" ? " Trigger live." : "";
+    current.triggerActive && current.triggerDirection === "upside" ? "" : "";
+  const persistentStrength =
+    previous && previous.earthDelta >= 4 && current.earthDelta >= previous.earthDelta
+      ? " It has held a positive reading across another cycle."
+      : "";
+  const title =
+    current.triggerActive && current.triggerDirection === "upside"
+      ? `${asset.label} triggered in ${cityName}`
+      : previous && previous.earthDelta >= 4 && current.earthDelta > previous.earthDelta
+        ? `${asset.label} climbing in ${cityName}`
+        : `${asset.label} notable in ${cityName}`;
 
   return createOracleNotification({
     eventKey,
     category: "opportunity",
     severity,
-    title: `Buy ${asset.label} in ${cityName}`,
-    body: `${driverLabel} is supportive. Delta ${formatSigned(current.earthDelta)} at ${formatCurrency(askPrice)}.${triggerText}`,
+    title,
+    body: `${driverTitle} in ${cityName} is ${signalText}. Implied move is ${formatImpliedMove(current.earthDelta)} at ${formatCurrency(askPrice)}.${triggerText}${persistentStrength}`,
     speakText:
       severity === "critical"
-        ? `Strong buy window. ${asset.label} in ${cityName} is in a critical upside regime.`
+        ? `${asset.label} in ${cityName} is in a critical positive regime. ${driverLabel} is ${signalText}, and the implied move is ${formatImpliedMove(current.earthDelta)}.`
         : severity === "alert"
-          ? `Buy window. ${asset.label} in ${cityName} looks attractive right now.`
-          : `Watch ${asset.label} in ${cityName}. Conditions just improved.`,
+          ? `${asset.label} in ${cityName} is strengthening. ${driverLabel} is ${signalText}, with an implied move of ${formatImpliedMove(current.earthDelta)}.`
+          : `${asset.label} in ${cityName} is worth watching. ${driverLabel} is ${signalText}, with an implied move of ${formatImpliedMove(current.earthDelta)}.`,
     cityIds: [cityId],
     assetIds: [assetId],
     affectedValue: askPrice,
@@ -531,18 +577,14 @@ export function evaluateOracleNotifications({
   const nextDestinationBlockedByCity: OracleWatchState["destinationBlockedByCity"] = {};
   const nextOpportunities: OracleWatchState["opportunities"] = {};
   const activeEventKeys = new Set<string>();
+  const opportunityCandidates: OracleNotification[] = [];
+  const stormTransitionCities = new Set<string>();
 
-  const trackedStormCities = new Set<string>(
-    focusedCityId !== currentCityId ? [focusedCityId] : []
-  );
-  Object.entries(portfolio.cityValue).forEach(([cityId, value]) => {
-    const sharePct = (value / portfolio.totalValue) * 100;
-    if (cityId !== currentCityId && sharePct >= STORM_FEED_SHARE_PCT) {
-      trackedStormCities.add(cityId);
+  Object.entries(portfolio.cityValue).forEach(([cityId]) => {
+    if (cityId === currentCityId) {
+      return;
     }
-  });
 
-  trackedStormCities.forEach((cityId) => {
     const cityName = cityIndex[cityId]?.name ?? cityId;
     const affectedValue = portfolio.cityValue[cityId] ?? 0;
     const affectedPortfolioShare = (affectedValue / portfolio.totalValue) * 100;
@@ -564,6 +606,7 @@ export function evaluateOracleNotifications({
 
     if (!previousStormed && isStormed && isImportantCity) {
       const severity = affectedPortfolioShare >= STORM_CRITICAL_SHARE_PCT ? "critical" : "alert";
+      stormTransitionCities.add(cityId);
       notifications.push(
         createOracleNotification({
           eventKey,
@@ -588,6 +631,7 @@ export function evaluateOracleNotifications({
     }
 
     if (previousStormed && !isStormed && isImportantCity) {
+      stormTransitionCities.add(cityId);
       notifications.push(
         createOracleNotification({
           eventKey,
@@ -610,57 +654,37 @@ export function evaluateOracleNotifications({
     }
   });
 
-  const currentSignal = signalByCity[currentCityId];
-  if (currentSignal) {
-    const eventKey = `mycelium-${currentCityId}`;
-    const isOpen = isMyceliumOpen(currentSignal);
-    nextMyceliumOpenByCity[currentCityId] = isOpen;
+  signals.forEach((signal) => {
+    const cityId = signal.cityId;
+    const cityName = cityIndex[cityId]?.name ?? cityId;
+    const eventKey = `mycelium-${cityId}`;
+    const isOpen = isMyceliumOpen(signal);
+    nextMyceliumOpenByCity[cityId] = isOpen;
+    const affectedValue = portfolio.cityValue[cityId] ?? 0;
+    const affectedPortfolioShare = (affectedValue / portfolio.totalValue) * 100;
+    const holdingsCount = portfolio.cityHoldingsCount[cityId] ?? 0;
+
     if (!isOpen) {
       activeEventKeys.add(eventKey);
     }
 
-    if (previousState.initialized) {
-      const previousOpen = previousState.myceliumOpenByCity[currentCityId];
-      const affectedValue = portfolio.cityValue[currentCityId] ?? 0;
-      const affectedPortfolioShare = (affectedValue / portfolio.totalValue) * 100;
-      const holdingsCount = portfolio.cityHoldingsCount[currentCityId] ?? 0;
-      const cityName = cityIndex[currentCityId]?.name ?? currentCityId;
-
-      void previousOpen;
-      void affectedValue;
-      void affectedPortfolioShare;
-      void holdingsCount;
-      void cityName;
-    }
-  }
-
-  if (focusedCityId !== currentCityId && !flight) {
-    const isBlocked = blockedSet.has(focusedCityId);
-    const affectedValue = portfolio.cityValue[focusedCityId] ?? 0;
-    const affectedPortfolioShare = (affectedValue / portfolio.totalValue) * 100;
-    const holdingsCount = portfolio.cityHoldingsCount[focusedCityId] ?? 0;
-    const cityName = cityIndex[focusedCityId]?.name ?? focusedCityId;
-    const eventKey = `destination-${focusedCityId}`;
-    nextDestinationBlockedByCity[focusedCityId] = isBlocked;
-    if (isBlocked) {
-      activeEventKeys.add(eventKey);
-    }
-
-    if (previousState.initialized) {
-      const previousBlocked = previousState.destinationBlockedByCity[focusedCityId] ?? false;
-      const isImportant = affectedPortfolioShare >= STORM_FEED_SHARE_PCT;
-
-      if (!previousBlocked && isBlocked && isImportant) {
+    if (
+      previousState.initialized &&
+      cityId !== currentCityId &&
+      holdingsCount > 0
+    ) {
+      const previousOpen = previousState.myceliumOpenByCity[cityId] ?? true;
+      if (previousOpen && !isOpen) {
         notifications.push(
           createOracleNotification({
             eventKey,
             category: "access",
             severity: "alert",
-            title: `Route to ${cityName} closed`,
-            body: `Route shut. ${formatCurrency(affectedValue)} is stuck behind the storm wall.`,
-            speakText: `${cityName} has slipped behind the storm wall. Access to that market is temporarily closed.`,
-            cityIds: [focusedCityId],
-            assetIds: Object.entries(holdings[focusedCityId] ?? {})
+            title: `${cityName} mycelium closed`,
+            body: `${formatMyceliumReadings(signal)}. Local fungal access has broken down around ${formatCurrency(affectedValue)} of exposure.`,
+            speakText: `${cityName} fell out of mycelium range. ${formatMyceliumReadings(signal)}.`,
+            cityIds: [cityId],
+            assetIds: Object.entries(holdings[cityId] ?? {})
               .filter(([, quantity]) => quantity > 0)
               .map(([assetId]) => assetId),
             affectedValue,
@@ -671,17 +695,17 @@ export function evaluateOracleNotifications({
         );
       }
 
-      if (previousBlocked && !isBlocked && isImportant) {
+      if (!previousOpen && isOpen) {
         notifications.push(
           createOracleNotification({
             eventKey,
             category: "recovery",
             severity: "calm",
-            title: `${cityName} reopened`,
-            body: `The route is open again.`,
-            speakText: `The route to ${cityName} has reopened. That market is accessible again.`,
-            cityIds: [focusedCityId],
-            assetIds: Object.entries(holdings[focusedCityId] ?? {})
+            title: `${cityName} mycelium restored`,
+            body: `${formatMyceliumReadings(signal)}. Fungal access has recovered there.`,
+            speakText: `${cityName} is back inside mycelium range. ${formatMyceliumReadings(signal)}.`,
+            cityIds: [cityId],
+            assetIds: Object.entries(holdings[cityId] ?? {})
               .filter(([, quantity]) => quantity > 0)
               .map(([assetId]) => assetId),
             affectedValue,
@@ -693,7 +717,73 @@ export function evaluateOracleNotifications({
         );
       }
     }
-  }
+
+    const isBlocked = blockedSet.has(cityId);
+    const destinationEventKey = `destination-${cityId}`;
+    nextDestinationBlockedByCity[cityId] = isBlocked;
+    if (isBlocked) {
+      activeEventKeys.add(destinationEventKey);
+    }
+
+    if (!previousState.initialized || cityId === currentCityId || flight) {
+      return;
+    }
+
+    const previousBlocked = previousState.destinationBlockedByCity[cityId] ?? false;
+    const isImportant =
+      cityId === focusedCityId || affectedPortfolioShare >= STORM_FEED_SHARE_PCT;
+
+    if (!isImportant) {
+      return;
+    }
+
+    if (stormTransitionCities.has(cityId) && cityId !== focusedCityId) {
+      return;
+    }
+
+    if (!previousBlocked && isBlocked) {
+      notifications.push(
+        createOracleNotification({
+          eventKey: destinationEventKey,
+          category: "access",
+          severity: "alert",
+          title: `Route to ${cityName} closed`,
+          body: `Route shut. ${formatCurrency(affectedValue)} is stuck behind the storm wall.`,
+          speakText: `${cityName} has slipped behind the storm wall. Access to that market is temporarily closed.`,
+          cityIds: [cityId],
+          assetIds: Object.entries(holdings[cityId] ?? {})
+            .filter(([, quantity]) => quantity > 0)
+            .map(([assetId]) => assetId),
+          affectedValue,
+          affectedPortfolioShare,
+          holdingsCount,
+          timestamp
+        })
+      );
+    }
+
+    if (previousBlocked && !isBlocked) {
+      notifications.push(
+        createOracleNotification({
+          eventKey: destinationEventKey,
+          category: "recovery",
+          severity: "calm",
+          title: `${cityName} reopened`,
+          body: "The route is open again.",
+          speakText: `The route to ${cityName} has reopened. That market is accessible again.`,
+          cityIds: [cityId],
+          assetIds: Object.entries(holdings[cityId] ?? {})
+            .filter(([, quantity]) => quantity > 0)
+            .map(([assetId]) => assetId),
+          affectedValue,
+          affectedPortfolioShare,
+          holdingsCount,
+          timestamp,
+          state: "resolved"
+        })
+      );
+    }
+  });
 
   Object.entries(holdings).forEach(([cityId, cityHoldings]) => {
     const signal = signalByCity[cityId];
@@ -742,7 +832,6 @@ export function evaluateOracleNotifications({
       }
 
       const isImportantPosition =
-        cityId !== currentCityId &&
         Math.max(previousPosition.sharePct, positionShare) >= DRIVER_FEED_SHARE_PCT;
       if (!isImportantPosition) {
         return;
@@ -764,64 +853,84 @@ export function evaluateOracleNotifications({
     });
   });
 
-  if (
-    notifications.length === 0 &&
-    cash >= 1_000 &&
-    focusedCityId !== currentCityId &&
-    !blockedSet.has(focusedCityId) &&
-    (portfolio.cityHoldingsCount[focusedCityId] ?? 0) === 0
-  ) {
-    const focusedSignal = signalByCity[focusedCityId];
-    if (focusedSignal) {
-      assetProfiles.forEach((asset) => {
-        if ((holdings[focusedCityId]?.[asset.id] ?? 0) > 0) {
-          return;
-        }
-
-        const askPrice =
-          prices[focusedCityId]?.[asset.id] ??
-          tickers.find((ticker) => ticker.assetId === asset.id)?.price ??
-          asset.basePrice;
-        const computation = computeOracle(asset, focusedSignal, askPrice);
-        const triggeredState = getTriggeredRuleState(asset.id, focusedSignal);
-        const opportunityKey = `${focusedCityId}:${asset.id}`;
-
-        nextOpportunities[opportunityKey] = {
-          earthDelta: computation.earthDelta,
-          severity: computation.severity,
-          triggerActive: triggeredState.active,
-          triggerDirection: triggeredState.direction,
-          accessible: true
-        };
-
-        const looksInteresting =
-          computation.earthDelta >= 4 ||
-          severityRank(computation.severity) >= severityRank("alert") ||
-          (triggeredState.active && triggeredState.direction === "upside");
-        if (!looksInteresting || !previousState.initialized) {
-          return;
-        }
-
-        const notification = buildOpportunityNotification({
-          cityId: focusedCityId,
-          assetId: asset.id,
-          current: nextOpportunities[opportunityKey],
-          previous: previousState.opportunities[opportunityKey],
-          askPrice,
-          timestamp
-        });
-
-        if (notification) {
-          activeEventKeys.add(`opportunity-${focusedCityId}-${asset.id}`);
-          notifications.push(notification);
-        }
-      });
+  signals.forEach((signal) => {
+    if (cash < 1_000 || signal.cityId === currentCityId || blockedSet.has(signal.cityId)) {
+      return;
     }
-  }
+
+    assetProfiles.forEach((asset) => {
+      if ((holdings[signal.cityId]?.[asset.id] ?? 0) > 0) {
+        return;
+      }
+
+      const driverKey = getPrimaryDriverKey(asset.ecologicalWeights);
+      if (!driverKey) {
+        return;
+      }
+
+      const askPrice =
+        prices[signal.cityId]?.[asset.id] ??
+        tickers.find((ticker) => ticker.assetId === asset.id)?.price ??
+        asset.basePrice;
+      const computation = computeOracle(asset, signal, askPrice);
+      const triggeredState = getTriggeredRuleState(asset.id, signal);
+      const opportunityKey = `${signal.cityId}:${asset.id}`;
+
+      nextOpportunities[opportunityKey] = {
+        earthDelta: computation.earthDelta,
+        severity: computation.severity,
+        triggerActive: triggeredState.active,
+        triggerDirection: triggeredState.direction,
+        accessible: true,
+        signalValue: signal[driverKey]
+      };
+
+      const looksInteresting =
+        computation.earthDelta >= 6 ||
+        severityRank(computation.severity) >= severityRank("critical") ||
+        (triggeredState.active && triggeredState.direction === "upside" && computation.earthDelta >= 4);
+      if (!looksInteresting || !previousState.initialized) {
+        return;
+      }
+
+      const notification = buildOpportunityNotification({
+        cityId: signal.cityId,
+        assetId: asset.id,
+        current: nextOpportunities[opportunityKey],
+        previous: previousState.opportunities[opportunityKey],
+        askPrice,
+        timestamp
+      });
+
+      if (notification) {
+        activeEventKeys.add(`opportunity-${signal.cityId}-${asset.id}`);
+        opportunityCandidates.push(notification);
+      }
+    });
+  });
+
+  notifications.push(
+    ...opportunityCandidates
+      .sort((left, right) => {
+        const severityWeight = (severity: Severity) =>
+          severity === "critical" ? 3 : severity === "alert" ? 2 : 1;
+        return (
+          severityWeight(right.severity) * 100 +
+          right.affectedValue +
+          right.affectedPortfolioShare -
+          (severityWeight(left.severity) * 100 +
+            left.affectedValue +
+            left.affectedPortfolioShare)
+        );
+      })
+      .slice(0, GLOBAL_OPPORTUNITY_LIMIT)
+  );
+
+  const dedupedNotifications = dedupeNotifications(notifications);
 
   return {
-    notifications,
-    speakable: selectSpeakableNotification(notifications),
+    notifications: dedupedNotifications,
+    speakable: selectSpeakableNotification(dedupedNotifications),
     nextState: {
       initialized: true,
       activeEventKeys: [...activeEventKeys],
